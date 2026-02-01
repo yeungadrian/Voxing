@@ -11,7 +11,6 @@ import sounddevice as sd
 from mlx_audio.stt import load_model as load_stt_model
 from mlx_audio.tts.utils import load_model as load_tts_model
 from mlx_lm import load, stream_generate
-from mlx_lm.sample_utils import make_logits_processors, make_sampler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -22,7 +21,6 @@ class Config:
     sample_rate: int = 16000
     tts_sample_rate: int = 24000
     silence_threshold: float = 0.02
-    min_volume: float = 0.03
     silence_duration: float = 0.5
     max_record_duration: float = 10.0
     min_record_duration: float = 0.3
@@ -34,21 +32,16 @@ class Config:
     tts_model: str = "mlx-community/Kokoro-82M-bf16"
     tts_voice: str = "af_heart"
     max_tokens: int = 512
-    temperature: float = 0.1
-    top_k: int = 50
-    top_p: float = 0.1
-    repetition_penalty: float = 1.05
 
 
 def record_until_silence(
     sample_rate: int,
     silence_threshold: float,
-    min_volume: float,
     silence_duration: float,
     max_duration: float,
     min_duration: float,
 ) -> np.ndarray | None:
-    """Record audio until silence. Returns None if too short or too quiet."""
+    """Record audio until silence. Returns None if too short."""
     chunk_duration = 0.1
     chunk_samples = int(sample_rate * chunk_duration)
     silence_chunks_needed = int(silence_duration / chunk_duration)
@@ -84,12 +77,7 @@ def record_until_silence(
     if len(audio_chunks) < min_chunks:
         return None
 
-    audio = np.concatenate(audio_chunks, axis=0).flatten()
-
-    if np.sqrt(np.mean(audio**2)) < min_volume:
-        return None
-
-    return audio
+    return np.concatenate(audio_chunks, axis=0).flatten()
 
 
 def play_audio(audio: np.ndarray, sample_rate: int) -> None:
@@ -120,14 +108,6 @@ class VoiceAssistant:
 
         logger.info("Loading LLM model...")
         self.llm_model, self.tokenizer = load(self.config.llm_model)
-        self.sampler = make_sampler(
-            temp=self.config.temperature,
-            top_k=self.config.top_k,
-            top_p=self.config.top_p,
-        )
-        self.logits_processors = make_logits_processors(
-            repetition_penalty=self.config.repetition_penalty
-        )
 
         logger.info("Loading TTS model...")
         self.tts_model = load_tts_model(self.config.tts_model)  # ty:ignore[invalid-argument-type]
@@ -169,8 +149,6 @@ class VoiceAssistant:
             tokenizer=self.tokenizer,
             prompt=self._format_prompt(command),
             max_tokens=self.config.max_tokens,
-            sampler=self.sampler,
-            logits_processors=self.logits_processors,
         ):
             yield chunk.text
 
@@ -205,7 +183,6 @@ class VoiceAssistant:
         return record_until_silence(
             sample_rate=self.config.sample_rate,
             silence_threshold=self.config.silence_threshold,
-            min_volume=self.config.min_volume,
             silence_duration=self.config.silence_duration,
             max_duration=self.config.max_record_duration,
             min_duration=self.config.min_record_duration,
