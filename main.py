@@ -1,7 +1,6 @@
-import logging
 import re
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -12,28 +11,23 @@ from mlx_audio.stt import load_model as load_stt_model
 from mlx_audio.tts.utils import load_model as load_tts_model
 from mlx_lm import load, stream_generate
 from mlx_lm.tokenizer_utils import TokenizerWrapper
-
-
-# TODO: Replace logging with rich
-# TODO: Silence all other logs?
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+from rich.console import Console
 
 PHRASE_END = re.compile(r"[.!?,;:]+\s*")
 
-KOKORO_MAPPING = {
-    "en": "a",
-    "es": "e",
-    "fr": "f",
-    "hi": "h",
-    "it": "i",
-    "ja": "j",
-    "pt": "p",
-    "zh-cn": "z",
-    "zh-tw": "z",
+# Maps langdetect codes to Kokoro (voice, lang_code)
+KOKORO_VOICES = {
+    "en": ("af_heart", "a"),      # American English - Grade A
+    "es": ("ef_dora", "e"),       # Spanish
+    "fr": ("ff_siwis", "f"),      # French - Grade B-
+    "hi": ("hf_alpha", "h"),      # Hindi - Grade C
+    "it": ("if_sara", "i"),       # Italian - Grade C
+    "ja": ("jf_alpha", "j"),      # Japanese - Grade C+
+    "pt": ("pf_dora", "p"),       # Brazilian Portuguese
+    "zh-cn": ("zf_xiaobei", "z"), # Mandarin Chinese
+    "zh-tw": ("zf_xiaobei", "z"), # Mandarin Chinese
 }
+DEFAULT_VOICE = ("af_heart", "a")
 
 
 @dataclass
@@ -55,6 +49,8 @@ class VoiceAssistant:
     # TTS/LLM settings
     tts_voice: str = "af_heart"
     max_tokens: int = 512
+    # Console
+    console: Console = field(default_factory=Console)
 
     def _transcribe(self, audio: np.ndarray) -> str:
         result = self.stt_model.generate(audio)
@@ -74,13 +70,13 @@ class VoiceAssistant:
     def _speak(self, text: str) -> None:
         if not text.strip():
             return
-        _lang_code = detect(text)
-        print(_lang_code)
+        detected_lang = detect(text)
+        voice, lang_code = KOKORO_VOICES.get(detected_lang, DEFAULT_VOICE)
         for result in self.tts_model.generate(
             text=text,
-            voice=self.tts_voice,
+            voice=voice,
+            lang_code=lang_code,
             speed=1.0,
-            lang_code=KOKORO_MAPPING.get(_lang_code, "a"),
         ):
             audio = np.array(result.audio, dtype=np.float32)
             self._play_audio(audio)
@@ -108,10 +104,11 @@ class VoiceAssistant:
         ):
             yield chunk.text
 
-    def _respond(self, user_input: str) -> None:
+    def _respond(self, user_input: str, status) -> None:
         phrase_buffer = ""
         full_response = ""
 
+        status.update("[bold cyan]Thinking...")
         for token in self._stream_llm(user_input):
             phrase_buffer += token
             full_response += token
@@ -120,12 +117,15 @@ class VoiceAssistant:
             if match:
                 phrase = phrase_buffer[: match.end()]
                 phrase_buffer = phrase_buffer[match.end() :]
+                status.update("[bold magenta]Speaking...")
                 self._speak(phrase)
+                status.update("[bold cyan]Thinking...")
 
         if phrase_buffer.strip():
+            status.update("[bold magenta]Speaking...")
             self._speak(phrase_buffer)
 
-        logger.info(f"Full response: {full_response}")
+        self.console.print(f"[dim]> Assistant:[/dim] {full_response}")
 
     def _record(self) -> np.ndarray | None:
         """Record audio until silence. Returns None if too short."""
@@ -169,43 +169,58 @@ class VoiceAssistant:
         return np.concatenate(audio_chunks, axis=0).flatten()
 
     def run(self) -> None:
-        logger.info(f"Wake words: {', '.join(self.wake_words)}")
+        self.console.print(
+            f"[bold green]Voice Assistant Ready[/bold green] "
+            f"[dim](wake words: {', '.join(self.wake_words)})[/dim]"
+        )
         awaiting_command = False
 
-        while True:
-            audio = self._record()
-            if audio is None:
+        with self.console.status("[bold blue]Listening...") as status:
+            while True:
+                if awaiting_command:
+                    status.update("[bold yellow]Awake - listening for command...")
+                else:
+                    status.update("[bold blue]Listening...")
+
+                audio = self._record()
+                if audio is None:
+                    awaiting_command = False
+                    continue
+
+                status.update("[bold green]Transcribing...")
+                text = self._transcribe(audio)
+                if not text:
+                    continue
+
+                if not awaiting_command:
+                    if self._has_wake_word(text):
+                        self.console.print("[bold yellow]Wake word detected![/bold yellow]")
+                        awaiting_command = True
+                    continue
+
+                self.console.print(f"[dim]> You:[/dim] {text}")
+                self._respond(text, status)
                 awaiting_command = False
-                continue
-
-            text = self._transcribe(audio)
-            if not text:
-                continue
-
-            logger.info(f"Heard: {text}")
-
-            if not awaiting_command:
-                if self._has_wake_word(text):
-                    logger.info("Wake word detected!")
-                    awaiting_command = True
-                continue
-
-            logger.info(f"Command: {text}")
-            self._respond(text)
-            awaiting_command = False
 
 
 def main() -> None:
-    # Poor mlx typing
-    stt_model = load_stt_model("mlx-community/whisper-large-v3-turbo-asr-fp16")
-    llm_model, tokenizer = load("LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit")  # ty:ignore[invalid-assignment]
-    tts_model = load_tts_model("mlx-community/Kokoro-82M-bf16")  # ty:ignore[invalid-argument-type]
+    console = Console()
+
+    with console.status("[bold blue]Loading STT model...") as status:
+        stt_model = load_stt_model("mlx-community/whisper-large-v3-turbo-asr-fp16")
+
+        status.update("[bold blue]Loading LLM model...")
+        llm_model, tokenizer = load("LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit")  # ty:ignore[invalid-assignment]
+
+        status.update("[bold blue]Loading TTS model...")
+        tts_model = load_tts_model("mlx-community/Kokoro-82M-bf16")  # ty:ignore[invalid-argument-type]
 
     assistant = VoiceAssistant(
         stt_model=stt_model,
         llm_model=llm_model,
         tts_model=tts_model,
         tokenizer=tokenizer,
+        console=console,
     )
 
     try:
