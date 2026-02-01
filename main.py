@@ -1,169 +1,118 @@
-"""Simple voice assistant with wake word detection."""
-
 import logging
 import re
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Iterator
+from dataclasses import dataclass
 
 import mlx.core as mx
+import mlx.nn as nn
 import numpy as np
 import sounddevice as sd
+from langdetect import detect
 from mlx_audio.stt import load_model as load_stt_model
 from mlx_audio.tts.utils import load_model as load_tts_model
 from mlx_lm import load, stream_generate
+from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# TODO: Replace logging with rich
+# TODO: Silence all other logs?
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class Config:
-    sample_rate: int = 16000
-    tts_sample_rate: int = 24000
-    silence_threshold: float = 0.02
-    silence_duration: float = 0.5
-    max_record_duration: float = 10.0
-    min_record_duration: float = 0.3
-    wake_words: list[str] = field(
-        default_factory=lambda: ["reachy", "reach", "richy", "reechy", "hello"]
-    )
-    stt_model: str = "mlx-community/whisper-large-v3-turbo-asr-fp16"
-    llm_model: str = "mlx-community/Jan-v3-4B-base-instruct-8bit"
-    tts_model: str = "mlx-community/Kokoro-82M-bf16"
-    tts_voice: str = "af_heart"
-    max_tokens: int = 512
-
-
-def record_until_silence(
-    sample_rate: int,
-    silence_threshold: float,
-    silence_duration: float,
-    max_duration: float,
-    min_duration: float,
-) -> np.ndarray | None:
-    """Record audio until silence. Returns None if too short."""
-    chunk_duration = 0.1
-    chunk_samples = int(sample_rate * chunk_duration)
-    silence_chunks_needed = int(silence_duration / chunk_duration)
-    max_chunks = int(max_duration / chunk_duration)
-    min_chunks = int(min_duration / chunk_duration)
-
-    audio_chunks = []
-    silence_count = 0
-    recording = False
-
-    with sd.InputStream(samplerate=sample_rate, channels=1, dtype=np.float32) as stream:
-        while len(audio_chunks) < max_chunks:
-            chunk, _ = stream.read(chunk_samples)
-            rms = np.sqrt(np.mean(chunk**2))
-            has_voice = rms > silence_threshold
-
-            if not recording:
-                if has_voice:
-                    recording = True
-                    audio_chunks.append(chunk)
-                    silence_count = 0
-                continue
-
-            audio_chunks.append(chunk)
-
-            if has_voice:
-                silence_count = 0
-            else:
-                silence_count += 1
-                if silence_count >= silence_chunks_needed:
-                    break
-
-    if len(audio_chunks) < min_chunks:
-        return None
-
-    return np.concatenate(audio_chunks, axis=0).flatten()
-
-
-def play_audio(audio: np.ndarray, sample_rate: int) -> None:
-    audio = audio.flatten().astype(np.float32)
-    max_val = max(abs(audio.max()), abs(audio.min()), 1.0)
-    if max_val > 1.0:
-        audio = audio / max_val
-    sd.play(audio, sample_rate)
-    sd.wait()
-
 
 PHRASE_END = re.compile(r"[.!?,;:]+\s*")
 
+KOKORO_MAPPING = {
+    "en": "a",
+    "es": "e",
+    "fr": "f",
+    "hi": "h",
+    "it": "i",
+    "ja": "j",
+    "pt": "p",
+    "zh-cn": "z",
+    "zh-tw": "z",
+}
 
+
+@dataclass
 class VoiceAssistant:
-    def __init__(
-        self,
-        config: Config | None = None,
-        command_handler: Callable[[str], str | None] | None = None,
-    ):
-        self.config = config or Config()
-        self.command_handler = command_handler
-        self._load_models()
-
-    def _load_models(self) -> None:
-        logger.info("Loading STT model...")
-        self.stt_model = load_stt_model(self.config.stt_model)
-
-        logger.info("Loading LLM model...")
-        self.llm_model, self.tokenizer = load(self.config.llm_model)
-
-        logger.info("Loading TTS model...")
-        self.tts_model = load_tts_model(self.config.tts_model)  # ty:ignore[invalid-argument-type]
-        logger.info("Models loaded.")
+    # Models
+    stt_model: nn.Module
+    llm_model: nn.Module
+    tts_model: nn.Module
+    tokenizer: TokenizerWrapper
+    # Audio
+    input_sample_rate: int = 16000
+    tts_sample_rate: int = 24000
+    silence_threshold: float = 0.0
+    silence_duration: float = 1.0
+    max_record_duration: float = 10.0
+    min_record_duration: float = 0.3
+    # Wake words
+    wake_words: tuple[str, ...] = ("reachy", "reach", "richy", "reechy", "hello")
+    # TTS/LLM settings
+    tts_voice: str = "af_heart"
+    max_tokens: int = 512
 
     def _transcribe(self, audio: np.ndarray) -> str:
         result = self.stt_model.generate(audio)
-        mx.eval()
         return result.text.strip()
 
     def _has_wake_word(self, text: str) -> bool:
-        text_lower = text.lower()
-        return any(word in text_lower for word in self.config.wake_words)
+        return any(word in text.lower() for word in self.wake_words)
+
+    def _play_audio(self, audio: np.ndarray) -> None:
+        audio = audio.flatten().astype(np.float32)
+        max_val = max(abs(audio.max()), abs(audio.min()))
+        if max_val > 1.0:
+            audio = audio / max_val
+        sd.play(audio, self.tts_sample_rate)
+        sd.wait()
 
     def _speak(self, text: str) -> None:
         if not text.strip():
             return
+        _lang_code = detect(text)
+        print(_lang_code)
         for result in self.tts_model.generate(
             text=text,
-            voice=self.config.tts_voice,
+            voice=self.tts_voice,
             speed=1.0,
-            lang_code="a",
+            lang_code=KOKORO_MAPPING.get(_lang_code, "a"),
         ):
-            mx.eval()
             audio = np.array(result.audio, dtype=np.float32)
-            play_audio(audio, self.config.tts_sample_rate)
+            self._play_audio(audio)
 
-    def _format_prompt(self, command: str) -> str:
+    def _format_prompt(self, user_input: str) -> str:
         if self.tokenizer.chat_template:
-            messages = [{"role": "user", "content": command}]
+            messages = [
+                {
+                    "role": "assistant",
+                    "content": "You are a voice assistant. All of your responses will be outputed via tts.",
+                },
+                {"role": "user", "content": user_input},
+            ]
             return self.tokenizer.apply_chat_template(
                 messages, add_generation_prompt=True, tokenize=False
             )
-        return command
+        return user_input
 
-    def _stream_llm(self, command: str):
+    def _stream_llm(self, user_input: str) -> Iterator[str]:
         for chunk in stream_generate(
             model=self.llm_model,
             tokenizer=self.tokenizer,
-            prompt=self._format_prompt(command),
-            max_tokens=self.config.max_tokens,
+            prompt=self._format_prompt(user_input),
+            max_tokens=self.max_tokens,
         ):
             yield chunk.text
 
-    def _respond(self, command: str) -> None:
-        if self.command_handler:
-            response = self.command_handler(command)
-            if response is not None:
-                logger.info(f"Response: {response}")
-                self._speak(response)
-                return
-
+    def _respond(self, user_input: str) -> None:
         phrase_buffer = ""
         full_response = ""
 
-        for token in self._stream_llm(command):
+        for token in self._stream_llm(user_input):
             phrase_buffer += token
             full_response += token
 
@@ -171,7 +120,6 @@ class VoiceAssistant:
             if match:
                 phrase = phrase_buffer[: match.end()]
                 phrase_buffer = phrase_buffer[match.end() :]
-                mx.eval()
                 self._speak(phrase)
 
         if phrase_buffer.strip():
@@ -180,87 +128,91 @@ class VoiceAssistant:
         logger.info(f"Full response: {full_response}")
 
     def _record(self) -> np.ndarray | None:
-        return record_until_silence(
-            sample_rate=self.config.sample_rate,
-            silence_threshold=self.config.silence_threshold,
-            silence_duration=self.config.silence_duration,
-            max_duration=self.config.max_record_duration,
-            min_duration=self.config.min_record_duration,
-        )
+        """Record audio until silence. Returns None if too short."""
+        chunk_duration = 0.1
+        chunk_samples = int(self.input_sample_rate * chunk_duration)
+        silence_chunks_needed = int(self.silence_duration / chunk_duration)
+        max_chunks = int(self.max_record_duration / chunk_duration)
+        min_chunks = int(self.min_record_duration / chunk_duration)
+
+        audio_chunks: list[np.ndarray] = []
+        silence_count = 0
+        recording = False
+
+        with sd.InputStream(
+            samplerate=self.input_sample_rate, channels=1, dtype=np.float32
+        ) as stream:
+            while len(audio_chunks) < max_chunks:
+                chunk, _ = stream.read(chunk_samples)
+                rms = np.sqrt(np.mean(chunk**2))
+                has_voice = rms > self.silence_threshold
+
+                if not recording:
+                    if has_voice:
+                        recording = True
+                        audio_chunks.append(chunk)
+                        silence_count = 0
+                    continue
+
+                audio_chunks.append(chunk)
+
+                if has_voice:
+                    silence_count = 0
+                else:
+                    silence_count += 1
+                    if silence_count >= silence_chunks_needed:
+                        break
+
+        if len(audio_chunks) < min_chunks:
+            return None
+
+        return np.concatenate(audio_chunks, axis=0).flatten()
 
     def run(self) -> None:
-        logger.info(f"Wake words: {', '.join(self.config.wake_words)}")
-        logger.info("Waiting for wake word...")
+        logger.info(f"Wake words: {', '.join(self.wake_words)}")
+        awaiting_command = False
 
-        listening = False
+        while True:
+            audio = self._record()
+            if audio is None:
+                awaiting_command = False
+                continue
 
-        try:
-            while True:
-                audio = self._record()
-                if audio is None:
-                    if listening:
-                        logger.info("No command heard. Waiting for wake word...")
-                        listening = False
-                    continue
+            text = self._transcribe(audio)
+            if not text:
+                continue
 
-                text = self._transcribe(audio)
-                if not text:
-                    if listening:
-                        listening = False
-                    continue
+            logger.info(f"Heard: {text}")
 
-                logger.info(f"Heard: {text}")
+            if not awaiting_command:
+                if self._has_wake_word(text):
+                    logger.info("Wake word detected!")
+                    awaiting_command = True
+                continue
 
-                if not listening:
-                    if self._has_wake_word(text):
-                        logger.info("Wake word detected! Listening...")
-                        listening = True
-                    continue
-
-                logger.info(f"Command: {text}")
-                self._respond(text)
-                logger.info("Waiting for wake word...")
-                listening = False
-
-        except KeyboardInterrupt:
-            logger.info("Shutting down...")
-
-    def cleanup(self) -> None:
-        del self.tts_model
-        del self.llm_model
-        del self.stt_model
-        mx.clear_cache()
-
-
-# Example: Robot command handler
-def robot_handler(command: str) -> str | None:
-    """Handle robot commands. Returns None to fall through to LLM."""
-    commands = {
-        "forward": "Moving forward",
-        "backward": "Moving backward",
-        "left": "Turning left",
-        "right": "Turning right",
-        "stop": "Stopping",
-    }
-    command_lower = command.lower()
-    for keyword, response in commands.items():
-        if keyword in command_lower:
-            # Add GPIO control here
-            logger.info(f"Robot command: {keyword}")
-            return response
-    return None
+            logger.info(f"Command: {text}")
+            self._respond(text)
+            awaiting_command = False
 
 
 def main() -> None:
-    config = Config()
-    # Pass robot_handler to enable robot commands:
-    # assistant = VoiceAssistant(config, command_handler=robot_handler)
-    assistant = VoiceAssistant(config)
+    # Poor mlx typing
+    stt_model = load_stt_model("mlx-community/whisper-large-v3-turbo-asr-fp16")
+    llm_model, tokenizer = load("LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit")  # ty:ignore[invalid-assignment]
+    tts_model = load_tts_model("mlx-community/Kokoro-82M-bf16")  # ty:ignore[invalid-argument-type]
+
+    assistant = VoiceAssistant(
+        stt_model=stt_model,
+        llm_model=llm_model,
+        tts_model=tts_model,
+        tokenizer=tokenizer,
+    )
 
     try:
         assistant.run()
     finally:
-        assistant.cleanup()
+        del stt_model, llm_model, tts_model
+        mx.clear_cache()
 
 
 if __name__ == "__main__":
