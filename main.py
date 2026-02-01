@@ -2,18 +2,13 @@
 
 import logging
 import re
-import tempfile
-import threading
-import queue
-from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum, auto
 
 import mlx.core as mx
 import numpy as np
 import sounddevice as sd
-import soundfile as sf
-from mlx_audio.stt.generate import generate_transcription, load_model as load_stt_model
+from mlx_audio.stt import load_model as load_stt_model
 from mlx_audio.tts.utils import load_model as load_tts_model
 from mlx_lm import load, stream_generate
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
@@ -27,6 +22,7 @@ class Config:
     sample_rate: int = 16000
     tts_sample_rate: int = 24000
     silence_threshold: float = 0.02
+    min_volume: float = 0.03
     silence_duration: float = 0.5
     max_record_duration: float = 10.0
     min_record_duration: float = 0.3
@@ -44,76 +40,15 @@ class Config:
     repetition_penalty: float = 1.05
 
 
-class State(Enum):
-    WAITING_FOR_WAKE_WORD = auto()
-    LISTENING_FOR_COMMAND = auto()
-    RESPONDING = auto()
-
-
-class CommandHandler(ABC):
-    """Base class for command handlers. Extend to add custom commands."""
-
-    @abstractmethod
-    def can_handle(self, command: str) -> bool:
-        pass
-
-    @abstractmethod
-    def handle(self, command: str) -> str:
-        pass
-
-
-class LLMCommandHandler(CommandHandler):
-    def __init__(self, llm_model, tokenizer, sampler, logits_processors, config: Config):
-        self.llm_model = llm_model
-        self.tokenizer = tokenizer
-        self.sampler = sampler
-        self.logits_processors = logits_processors
-        self.config = config
-
-    def can_handle(self, command: str) -> bool:
-        return True
-
-    def _format_prompt(self, command: str) -> str:
-        if self.tokenizer.chat_template:
-            messages = [{"role": "user", "content": command}]
-            return self.tokenizer.apply_chat_template(
-                messages, add_generation_prompt=True, tokenize=False
-            )
-        return command
-
-    def handle(self, command: str) -> str:
-        response = ""
-        for chunk in stream_generate(
-            model=self.llm_model,
-            tokenizer=self.tokenizer,
-            prompt=self._format_prompt(command),
-            max_tokens=self.config.max_tokens,
-            sampler=self.sampler,
-            logits_processors=self.logits_processors,
-        ):
-            response += chunk.text
-        return response
-
-    def stream(self, command: str):
-        for chunk in stream_generate(
-            model=self.llm_model,
-            tokenizer=self.tokenizer,
-            prompt=self._format_prompt(command),
-            max_tokens=self.config.max_tokens,
-            sampler=self.sampler,
-            logits_processors=self.logits_processors,
-        ):
-            yield chunk.text
-
-
 def record_until_silence(
     sample_rate: int,
     silence_threshold: float,
+    min_volume: float,
     silence_duration: float,
     max_duration: float,
     min_duration: float,
 ) -> np.ndarray | None:
-    """Record audio until silence is detected. Returns None if too short."""
+    """Record audio until silence. Returns None if too short or too quiet."""
     chunk_duration = 0.1
     chunk_samples = int(sample_rate * chunk_duration)
     silence_chunks_needed = int(silence_duration / chunk_duration)
@@ -149,7 +84,12 @@ def record_until_silence(
     if len(audio_chunks) < min_chunks:
         return None
 
-    return np.concatenate(audio_chunks, axis=0).flatten()
+    audio = np.concatenate(audio_chunks, axis=0).flatten()
+
+    if np.sqrt(np.mean(audio**2)) < min_volume:
+        return None
+
+    return audio
 
 
 def play_audio(audio: np.ndarray, sample_rate: int) -> None:
@@ -161,19 +101,18 @@ def play_audio(audio: np.ndarray, sample_rate: int) -> None:
     sd.wait()
 
 
-SENTENCE_END = re.compile(r"[.!?]+\s*")
+PHRASE_END = re.compile(r"[.!?,;:]+\s*")
 
 
 class VoiceAssistant:
-    def __init__(self, config: Config | None = None):
+    def __init__(
+        self,
+        config: Config | None = None,
+        command_handler: Callable[[str], str | None] | None = None,
+    ):
         self.config = config or Config()
-        self.state = State.WAITING_FOR_WAKE_WORD
-        self.command_handlers: list[CommandHandler] = []
-        self._tts_queue: queue.Queue[str | None] = queue.Queue()
-        self._shutdown = threading.Event()
-
+        self.command_handler = command_handler
         self._load_models()
-        self._setup_default_handlers()
 
     def _load_models(self) -> None:
         logger.info("Loading STT model...")
@@ -194,26 +133,10 @@ class VoiceAssistant:
         self.tts_model = load_tts_model(self.config.tts_model)  # ty:ignore[invalid-argument-type]
         logger.info("Models loaded.")
 
-    def _setup_default_handlers(self) -> None:
-        llm_handler = LLMCommandHandler(
-            self.llm_model,
-            self.tokenizer,
-            self.sampler,
-            self.logits_processors,
-            self.config,
-        )
-        self.command_handlers.append(llm_handler)
-
-    def add_command_handler(self, handler: CommandHandler) -> None:
-        """Add a command handler. Handlers are checked in order."""
-        self.command_handlers.insert(0, handler)
-
     def _transcribe(self, audio: np.ndarray) -> str:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as f:
-            sf.write(f.name, audio, self.config.sample_rate)
-            result = generate_transcription(model=self.stt_model, audio=f.name)
-            mx.eval()
-        return result.text.strip() if hasattr(result, "text") else ""
+        result = self.stt_model.generate(audio)
+        mx.eval()
+        return result.text.strip()
 
     def _has_wake_word(self, text: str) -> bool:
         text_lower = text.lower()
@@ -232,39 +155,49 @@ class VoiceAssistant:
             audio = np.array(result.audio, dtype=np.float32)
             play_audio(audio, self.config.tts_sample_rate)
 
-    def _respond_streaming(self, command: str) -> None:
-        handler = None
-        for h in self.command_handlers:
-            if h.can_handle(command):
-                handler = h
-                break
+    def _format_prompt(self, command: str) -> str:
+        if self.tokenizer.chat_template:
+            messages = [{"role": "user", "content": command}]
+            return self.tokenizer.apply_chat_template(
+                messages, add_generation_prompt=True, tokenize=False
+            )
+        return command
 
-        if handler is None:
-            logger.error("No handler found for command")
-            return
+    def _stream_llm(self, command: str):
+        for chunk in stream_generate(
+            model=self.llm_model,
+            tokenizer=self.tokenizer,
+            prompt=self._format_prompt(command),
+            max_tokens=self.config.max_tokens,
+            sampler=self.sampler,
+            logits_processors=self.logits_processors,
+        ):
+            yield chunk.text
 
-        if not isinstance(handler, LLMCommandHandler):
-            response = handler.handle(command)
-            logger.info(f"Response: {response}")
-            self._speak(response)
-            return
+    def _respond(self, command: str) -> None:
+        if self.command_handler:
+            response = self.command_handler(command)
+            if response is not None:
+                logger.info(f"Response: {response}")
+                self._speak(response)
+                return
 
-        sentence_buffer = ""
+        phrase_buffer = ""
         full_response = ""
 
-        for token in handler.stream(command):
-            sentence_buffer += token
+        for token in self._stream_llm(command):
+            phrase_buffer += token
             full_response += token
 
-            match = SENTENCE_END.search(sentence_buffer)
+            match = PHRASE_END.search(phrase_buffer)
             if match:
-                sentence = sentence_buffer[: match.end()]
-                sentence_buffer = sentence_buffer[match.end() :]
+                phrase = phrase_buffer[: match.end()]
+                phrase_buffer = phrase_buffer[match.end() :]
                 mx.eval()
-                self._speak(sentence)
+                self._speak(phrase)
 
-        if sentence_buffer.strip():
-            self._speak(sentence_buffer)
+        if phrase_buffer.strip():
+            self._speak(phrase_buffer)
 
         logger.info(f"Full response: {full_response}")
 
@@ -272,6 +205,7 @@ class VoiceAssistant:
         return record_until_silence(
             sample_rate=self.config.sample_rate,
             silence_threshold=self.config.silence_threshold,
+            min_volume=self.config.min_volume,
             silence_duration=self.config.silence_duration,
             max_duration=self.config.max_record_duration,
             min_duration=self.config.min_record_duration,
@@ -281,83 +215,70 @@ class VoiceAssistant:
         logger.info(f"Wake words: {', '.join(self.config.wake_words)}")
         logger.info("Waiting for wake word...")
 
+        listening = False
+
         try:
             while True:
-                if self.state == State.WAITING_FOR_WAKE_WORD:
-                    audio = self._record()
-                    if audio is None:
-                        continue
+                audio = self._record()
+                if audio is None:
+                    if listening:
+                        logger.info("No command heard. Waiting for wake word...")
+                        listening = False
+                    continue
 
-                    text = self._transcribe(audio)
-                    if not text:
-                        continue
+                text = self._transcribe(audio)
+                if not text:
+                    if listening:
+                        listening = False
+                    continue
 
-                    logger.info(f"Heard: {text}")
+                logger.info(f"Heard: {text}")
 
+                if not listening:
                     if self._has_wake_word(text):
                         logger.info("Wake word detected! Listening...")
-                        self.state = State.LISTENING_FOR_COMMAND
+                        listening = True
+                    continue
 
-                elif self.state == State.LISTENING_FOR_COMMAND:
-                    audio = self._record()
-                    if audio is None:
-                        logger.info("No command heard. Waiting for wake word...")
-                        self.state = State.WAITING_FOR_WAKE_WORD
-                        continue
-
-                    command = self._transcribe(audio)
-                    if not command:
-                        self.state = State.WAITING_FOR_WAKE_WORD
-                        continue
-
-                    logger.info(f"Command: {command}")
-                    self.state = State.RESPONDING
-
-                    self._respond_streaming(command)
-
-                    logger.info("Waiting for wake word...")
-                    self.state = State.WAITING_FOR_WAKE_WORD
+                logger.info(f"Command: {text}")
+                self._respond(text)
+                logger.info("Waiting for wake word...")
+                listening = False
 
         except KeyboardInterrupt:
             logger.info("Shutting down...")
-            self._shutdown.set()
 
     def cleanup(self) -> None:
         del self.tts_model
         del self.llm_model
         del self.stt_model
-        mx.metal.clear_cache()
+        mx.clear_cache()
 
 
-class RobotCommandHandler(CommandHandler):
-    """Example handler for robot commands. Extend for Raspberry Pi control."""
-
-    COMMANDS = {
+# Example: Robot command handler
+def robot_handler(command: str) -> str | None:
+    """Handle robot commands. Returns None to fall through to LLM."""
+    commands = {
         "forward": "Moving forward",
         "backward": "Moving backward",
         "left": "Turning left",
         "right": "Turning right",
         "stop": "Stopping",
     }
-
-    def can_handle(self, command: str) -> bool:
-        command_lower = command.lower()
-        return any(keyword in command_lower for keyword in self.COMMANDS)
-
-    def handle(self, command: str) -> str:
-        command_lower = command.lower()
-        for keyword, response in self.COMMANDS.items():
-            if keyword in command_lower:
-                # Add GPIO control here for actual robot
-                logger.info(f"Robot command: {keyword}")
-                return response
-        return "I don't understand that command."
+    command_lower = command.lower()
+    for keyword, response in commands.items():
+        if keyword in command_lower:
+            # Add GPIO control here
+            logger.info(f"Robot command: {keyword}")
+            return response
+    return None
 
 
 def main() -> None:
     config = Config()
+    # Pass robot_handler to enable robot commands:
+    # assistant = VoiceAssistant(config, command_handler=robot_handler)
     assistant = VoiceAssistant(config)
-    # assistant.add_command_handler(RobotCommandHandler())
 
     try:
         assistant.run()
