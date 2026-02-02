@@ -29,15 +29,15 @@ COLOR_YELLOW = "#e0af68"
 COLOR_COMMENT = "#565f89"
 
 KOKORO_VOICES = {
-    "en": ("af_heart", "a"),  # American English - Grade A
-    "es": ("ef_dora", "e"),  # Spanish
-    "fr": ("ff_siwis", "f"),  # French - Grade B-
-    "hi": ("hf_alpha", "h"),  # Hindi - Grade C
-    "it": ("if_sara", "i"),  # Italian - Grade C
-    "ja": ("jf_alpha", "j"),  # Japanese - Grade C+
-    "pt": ("pf_dora", "p"),  # Brazilian Portuguese
-    "zh-cn": ("zf_xiaobei", "z"),  # Mandarin Chinese
-    "zh-tw": ("zf_xiaobei", "z"),  # Mandarin Chinese
+    "en": ("af_heart", "a"),        # American English - Grade A
+    "es": ("ef_dora", "e"),         # Spanish
+    "fr": ("ff_siwis", "f"),        # French - Grade B-
+    "hi": ("hf_alpha", "h"),        # Hindi - Grade C
+    "it": ("if_sara", "i"),         # Italian - Grade C
+    "ja": ("jf_alpha", "j"),        # Japanese - Grade C+
+    "pt": ("pf_dora", "p"),         # Brazilian Portuguese
+    "zh-cn": ("zf_xiaobei", "z"),   # Mandarin Chinese
+    "zh-tw": ("zf_xiaobei", "z"),   # Mandarin Chinese
 }
 DEFAULT_VOICE = ("af_heart", "a")
 
