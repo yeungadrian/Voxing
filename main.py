@@ -1,8 +1,8 @@
-import re
-from collections.abc import Iterator
+import logging
+import warnings
 from dataclasses import dataclass, field
+from typing import cast
 
-import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 import sounddevice as sd
@@ -12,20 +12,32 @@ from mlx_audio.tts.utils import load_model as load_tts_model
 from mlx_lm import load, stream_generate
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from rich.console import Console
+from rich.live import Live
+from rich.spinner import Spinner
+from rich.text import Text
 
-PHRASE_END = re.compile(r"[.!?,;:]+\s*")
+logging.getLogger("mlx").setLevel(logging.ERROR)
+logging.getLogger("mlx_audio").setLevel(logging.ERROR)
+warnings.filterwarnings("ignore", message=".*deprecated.*")
 
-# Maps langdetect codes to Kokoro (voice, lang_code)
+# Tokyo Night colors
+COLOR_BLUE = "#7aa2f7"
+COLOR_CYAN = "#7dcfff"
+COLOR_GREEN = "#9ece6a"
+COLOR_PURPLE = "#bb9af7"
+COLOR_YELLOW = "#e0af68"
+COLOR_COMMENT = "#565f89"
+
 KOKORO_VOICES = {
-    "en": ("af_heart", "a"),      # American English - Grade A
-    "es": ("ef_dora", "e"),       # Spanish
-    "fr": ("ff_siwis", "f"),      # French - Grade B-
-    "hi": ("hf_alpha", "h"),      # Hindi - Grade C
-    "it": ("if_sara", "i"),       # Italian - Grade C
-    "ja": ("jf_alpha", "j"),      # Japanese - Grade C+
-    "pt": ("pf_dora", "p"),       # Brazilian Portuguese
-    "zh-cn": ("zf_xiaobei", "z"), # Mandarin Chinese
-    "zh-tw": ("zf_xiaobei", "z"), # Mandarin Chinese
+    "en": ("af_heart", "a"),  # American English - Grade A
+    "es": ("ef_dora", "e"),  # Spanish
+    "fr": ("ff_siwis", "f"),  # French - Grade B-
+    "hi": ("hf_alpha", "h"),  # Hindi - Grade C
+    "it": ("if_sara", "i"),  # Italian - Grade C
+    "ja": ("jf_alpha", "j"),  # Japanese - Grade C+
+    "pt": ("pf_dora", "p"),  # Brazilian Portuguese
+    "zh-cn": ("zf_xiaobei", "z"),  # Mandarin Chinese
+    "zh-tw": ("zf_xiaobei", "z"),  # Mandarin Chinese
 }
 DEFAULT_VOICE = ("af_heart", "a")
 
@@ -41,13 +53,11 @@ class VoiceAssistant:
     input_sample_rate: int = 16000
     tts_sample_rate: int = 24000
     silence_threshold: float = 0.0
-    silence_duration: float = 1.0
+    silence_duration: float = 0.5
     max_record_duration: float = 10.0
-    min_record_duration: float = 0.3
     # Wake words
     wake_words: tuple[str, ...] = ("reachy", "reach", "richy", "reechy", "hello")
-    # TTS/LLM settings
-    tts_voice: str = "af_heart"
+    # LLM settings
     max_tokens: int = 512
     # Console
     console: Console = field(default_factory=Console)
@@ -61,32 +71,23 @@ class VoiceAssistant:
 
     def _play_audio(self, audio: np.ndarray) -> None:
         audio = audio.flatten().astype(np.float32)
-        max_val = max(abs(audio.max()), abs(audio.min()))
-        if max_val > 1.0:
-            audio = audio / max_val
-        sd.play(audio, self.tts_sample_rate)
-        sd.wait()
-
-    def _speak(self, text: str) -> None:
-        if not text.strip():
-            return
-        detected_lang = detect(text)
-        voice, lang_code = KOKORO_VOICES.get(detected_lang, DEFAULT_VOICE)
-        for result in self.tts_model.generate(
-            text=text,
-            voice=voice,
-            lang_code=lang_code,
-            speed=1.0,
-        ):
-            audio = np.array(result.audio, dtype=np.float32)
-            self._play_audio(audio)
+        max_val = np.abs(audio).max()
+        if max_val > 0:
+            audio = audio / max_val * 0.9
+        with sd.OutputStream(
+            samplerate=self.tts_sample_rate,
+            channels=1,
+            dtype=np.float32,
+            blocksize=4096,
+        ) as stream:
+            stream.write(audio.reshape(-1, 1))
 
     def _format_prompt(self, user_input: str) -> str:
         if self.tokenizer.chat_template:
             messages = [
                 {
                     "role": "assistant",
-                    "content": "You are a voice assistant. All of your responses will be outputed via tts.",
+                    "content": "You are a voice assistant. All of your responses will be outputed via tts so keep use of punctuation minimal.",
                 },
                 {"role": "user", "content": user_input},
             ]
@@ -95,45 +96,61 @@ class VoiceAssistant:
             )
         return user_input
 
-    def _stream_llm(self, user_input: str) -> Iterator[str]:
-        for chunk in stream_generate(
-            model=self.llm_model,
-            tokenizer=self.tokenizer,
-            prompt=self._format_prompt(user_input),
-            max_tokens=self.max_tokens,
+    def _speak(self, text: str) -> None:
+        if not text.strip():
+            return None
+        detected_lang = detect(text)
+        voice, lang_code = KOKORO_VOICES.get(detected_lang, DEFAULT_VOICE)
+        for result in self.tts_model.generate(
+            text=text, voice=voice, lang_code=lang_code, speed=1.0
         ):
-            yield chunk.text
+            self._play_audio(np.array(result.audio, dtype=np.float32))
 
     def _respond(self, user_input: str, status) -> None:
         phrase_buffer = ""
         full_response = ""
+        is_speaking = False
 
-        status.update("[bold cyan]Thinking...")
-        for token in self._stream_llm(user_input):
-            phrase_buffer += token
-            full_response += token
+        def make_display(text: str) -> Text:
+            style = COLOR_PURPLE if is_speaking else COLOR_CYAN
+            spinner = Spinner("dots", style=style)
+            rendered = cast(Text, spinner.render(self.console.get_time()))
+            return Text.assemble(rendered, " ", ("> Assistant: ", COLOR_COMMENT), text)
 
-            match = PHRASE_END.search(phrase_buffer)
-            if match:
-                phrase = phrase_buffer[: match.end()]
-                phrase_buffer = phrase_buffer[match.end() :]
-                status.update("[bold magenta]Speaking...")
-                self._speak(phrase)
-                status.update("[bold cyan]Thinking...")
+        status.stop()
 
-        if phrase_buffer.strip():
-            status.update("[bold magenta]Speaking...")
-            self._speak(phrase_buffer)
+        with Live(
+            make_display(""), console=self.console, refresh_per_second=10
+        ) as live:
+            for chunk in stream_generate(
+                model=self.llm_model,
+                tokenizer=self.tokenizer,
+                prompt=self._format_prompt(user_input),
+                max_tokens=self.max_tokens,
+            ):
+                phrase_buffer += chunk.text
+                full_response += chunk.text
+                live.update(make_display(full_response))
 
-        self.console.print(f"[dim]> Assistant:[/dim] {full_response}")
+                if "\n" in phrase_buffer:
+                    phrase, phrase_buffer = phrase_buffer.rsplit("\n", 1)
+                    is_speaking = True
+                    live.update(make_display(full_response))
+                    self._speak(phrase)
+                    is_speaking = False
+
+            if phrase_buffer.strip():
+                is_speaking = True
+                live.update(make_display(full_response))
+                self._speak(phrase_buffer)
+
+        status.start()
 
     def _record(self) -> np.ndarray | None:
-        """Record audio until silence. Returns None if too short."""
         chunk_duration = 0.1
         chunk_samples = int(self.input_sample_rate * chunk_duration)
         silence_chunks_needed = int(self.silence_duration / chunk_duration)
         max_chunks = int(self.max_record_duration / chunk_duration)
-        min_chunks = int(self.min_record_duration / chunk_duration)
 
         audio_chunks: list[np.ndarray] = []
         silence_count = 0
@@ -163,42 +180,45 @@ class VoiceAssistant:
                     if silence_count >= silence_chunks_needed:
                         break
 
-        if len(audio_chunks) < min_chunks:
+        if not audio_chunks:
             return None
-
         return np.concatenate(audio_chunks, axis=0).flatten()
 
     def run(self) -> None:
         self.console.print(
-            f"[bold green]Voice Assistant Ready[/bold green] "
-            f"[dim](wake words: {', '.join(self.wake_words)})[/dim]"
+            f"[bold {COLOR_GREEN}]Voice Assistant Ready[/bold {COLOR_GREEN}] "
+            f"[{COLOR_COMMENT}](wake words: {', '.join(self.wake_words)})[/{COLOR_COMMENT}]"
         )
         awaiting_command = False
 
-        with self.console.status("[bold blue]Listening...") as status:
+        with self.console.status(f"[bold {COLOR_BLUE}]Listening...") as status:
             while True:
                 if awaiting_command:
-                    status.update("[bold yellow]Awake - listening for command...")
+                    status.update(
+                        f"[bold {COLOR_YELLOW}]Awake - listening for command..."
+                    )
                 else:
-                    status.update("[bold blue]Listening...")
+                    status.update(f"[bold {COLOR_BLUE}]Listening...")
 
                 audio = self._record()
                 if audio is None:
                     awaiting_command = False
                     continue
 
-                status.update("[bold green]Transcribing...")
+                status.update(f"[bold {COLOR_GREEN}]Transcribing...")
                 text = self._transcribe(audio)
                 if not text:
                     continue
 
                 if not awaiting_command:
                     if self._has_wake_word(text):
-                        self.console.print("[bold yellow]Wake word detected![/bold yellow]")
+                        self.console.print(
+                            f"[bold {COLOR_YELLOW}]Wake word detected![/bold {COLOR_YELLOW}]"
+                        )
                         awaiting_command = True
                     continue
 
-                self.console.print(f"[dim]> You:[/dim] {text}")
+                self.console.print(f"[{COLOR_COMMENT}]> You:[/{COLOR_COMMENT}] {text}")
                 self._respond(text, status)
                 awaiting_command = False
 
@@ -206,14 +226,17 @@ class VoiceAssistant:
 def main() -> None:
     console = Console()
 
-    with console.status("[bold blue]Loading STT model...") as status:
+    with console.status(f"[bold {COLOR_BLUE}]Loading STT model...") as status:
         stt_model = load_stt_model("mlx-community/whisper-large-v3-turbo-asr-fp16")
 
-        status.update("[bold blue]Loading LLM model...")
+        status.update(f"[bold {COLOR_BLUE}]Loading LLM model...")
         llm_model, tokenizer = load("LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit")  # ty:ignore[invalid-assignment]
 
-        status.update("[bold blue]Loading TTS model...")
+        status.update(f"[bold {COLOR_BLUE}]Loading TTS model...")
         tts_model = load_tts_model("mlx-community/Kokoro-82M-bf16")  # ty:ignore[invalid-argument-type]
+
+        status.update(f"[bold {COLOR_BLUE}]Warming up models...")
+        stt_model.generate(np.zeros(16000, dtype=np.float32))  # 1s of silence
 
     assistant = VoiceAssistant(
         stt_model=stt_model,
@@ -227,7 +250,6 @@ def main() -> None:
         assistant.run()
     finally:
         del stt_model, llm_model, tts_model
-        mx.clear_cache()
 
 
 if __name__ == "__main__":
