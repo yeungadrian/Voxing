@@ -16,10 +16,7 @@ def main() -> None:
         console=console,
     )
 
-    try:
-        assistant.run()
-    finally:
-        del stt_model, llm_model, tts_model
+    assistant.run()
 
 
 if __name__ == "__main__":

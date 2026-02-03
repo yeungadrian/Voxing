@@ -221,56 +221,64 @@ class VoiceAssistant:
             f"[bold {COLOR_GREEN}]Voice Assistant Ready[/bold {COLOR_GREEN}] "
             f"[{COLOR_COMMENT}](wake words: {', '.join(self.wake_words)})[/{COLOR_COMMENT}]"
         )
+        self.console.print(f"[{COLOR_COMMENT}]Press Ctrl+C to exit[/{COLOR_COMMENT}]")
         self.on_startup()
         awaiting_command = False
 
-        with self.console.status(f"[bold {COLOR_BLUE}]Listening...") as status:
-            while True:
-                if awaiting_command:
-                    status.update(
-                        f"[bold {COLOR_YELLOW}]Awake - listening for command..."
-                    )
-                else:
-                    status.update(f"[bold {COLOR_BLUE}]Listening...")
-                    self.on_idle()
-
-                record_start = time.perf_counter()
-                audio = self._record()
-                record_time = time.perf_counter() - record_start
-                if audio is None:
-                    awaiting_command = False
-                    continue
-
-                status.update(f"[bold {COLOR_GREEN}]Transcribing...")
-                self.on_thinking()
-                transcribe_start = time.perf_counter()
-                text = self._transcribe(audio)
-                transcribe_time = time.perf_counter() - transcribe_start
-                if not text:
-                    continue
-
-                audio_duration = len(audio) / self.input_sample_rate
-                self.console.print(
-                    f"[{COLOR_COMMENT}]Audio: {audio_duration:.1f}s | "
-                    f"Record wait: {record_time:.1f}s | "
-                    f"Transcribe: {transcribe_time:.2f}s[/{COLOR_COMMENT}]"
-                )
-
-                if not awaiting_command:
-                    self.console.print(
-                        f"[{COLOR_COMMENT}]Heard: {text}[/{COLOR_COMMENT}]"
-                    )
-                    if self._has_wake_word(text):
-                        self.console.print(
-                            f"[bold {COLOR_YELLOW}]Wake word detected![/bold {COLOR_YELLOW}]"
+        try:
+            with self.console.status(f"[bold {COLOR_BLUE}]Listening...") as status:
+                while True:
+                    if awaiting_command:
+                        status.update(
+                            f"[bold {COLOR_YELLOW}]Awake - listening for command..."
                         )
-                        self.on_wake_word()
-                        awaiting_command = True
-                    continue
+                    else:
+                        status.update(f"[bold {COLOR_BLUE}]Listening...")
+                        self.on_idle()
 
-                self.console.print(f"[{COLOR_COMMENT}]> You:[/{COLOR_COMMENT}] {text}")
-                self._respond(text, status)
-                awaiting_command = False
+                    record_start = time.perf_counter()
+                    audio = self._record()
+                    record_time = time.perf_counter() - record_start
+                    if audio is None:
+                        awaiting_command = False
+                        continue
+
+                    status.update(f"[bold {COLOR_GREEN}]Transcribing...")
+                    self.on_thinking()
+                    transcribe_start = time.perf_counter()
+                    text = self._transcribe(audio)
+                    transcribe_time = time.perf_counter() - transcribe_start
+                    if not text:
+                        continue
+
+                    audio_duration = len(audio) / self.input_sample_rate
+                    self.console.print(
+                        f"[{COLOR_COMMENT}]Audio: {audio_duration:.1f}s | "
+                        f"Record wait: {record_time:.1f}s | "
+                        f"Transcribe: {transcribe_time:.2f}s[/{COLOR_COMMENT}]"
+                    )
+
+                    if not awaiting_command:
+                        self.console.print(
+                            f"[{COLOR_COMMENT}]Heard: {text}[/{COLOR_COMMENT}]"
+                        )
+                        if self._has_wake_word(text):
+                            self.console.print(
+                                f"[bold {COLOR_YELLOW}]Wake word detected![/bold {COLOR_YELLOW}]"
+                            )
+                            self.on_wake_word()
+                            awaiting_command = True
+                        continue
+
+                    self.console.print(
+                        f"[{COLOR_COMMENT}]> You:[/{COLOR_COMMENT}] {text}"
+                    )
+                    self._respond(text, status)
+                    awaiting_command = False
+        except KeyboardInterrupt:
+            self.console.print(f"\n[{COLOR_COMMENT}]Shutting down...[/{COLOR_COMMENT}]")
+        finally:
+            self.on_shutdown()
 
 
 def load_models(

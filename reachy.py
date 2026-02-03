@@ -229,11 +229,7 @@ def main() -> None:
         reachy=reachy,
     )
 
-    try:
-        assistant.run()
-    finally:
-        assistant.on_shutdown()
-        del stt_model, llm_model, tts_model
+    assistant.run()
 
 
 if __name__ == "__main__":
