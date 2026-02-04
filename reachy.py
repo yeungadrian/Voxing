@@ -1,11 +1,13 @@
+import queue
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Self
 
 import numpy as np
 from reachy_mini import ReachyMini
 from rich.console import Console
+from scipy.signal import resample
 
 from assistant import (
     COLOR_BLUE,
@@ -14,50 +16,12 @@ from assistant import (
     load_models,
 )
 
-
-@dataclass(slots=True)
-class AntennaKeyframe:
-    left: float
-    right: float
-    duration: float
-
-
-ANTENNA_ANIMATIONS: dict[str, list[AntennaKeyframe]] = {
-    "startup": [
-        AntennaKeyframe(0.0, 0.0, 0.3),
-        AntennaKeyframe(0.3, -0.3, 0.2),
-        AntennaKeyframe(-0.3, 0.3, 0.2),
-        AntennaKeyframe(0.0, 0.0, 0.3),
-    ],
-    "idle": [
-        AntennaKeyframe(0.1, 0.1, 1.0),
-        AntennaKeyframe(0.2, 0.2, 1.0),
-    ],
-    "listening": [
-        AntennaKeyframe(0.4, 0.4, 0.2),
-        AntennaKeyframe(0.5, 0.5, 0.15),
-        AntennaKeyframe(0.45, 0.45, 0.1),
-    ],
-    "thinking": [
-        AntennaKeyframe(0.3, -0.2, 0.4),
-        AntennaKeyframe(0.2, -0.3, 0.4),
-    ],
-    "speaking": [
-        AntennaKeyframe(0.4, 0.4, 0.3),
-        AntennaKeyframe(0.5, 0.3, 0.2),
-        AntennaKeyframe(0.3, 0.5, 0.2),
-        AntennaKeyframe(0.4, 0.4, 0.3),
-    ],
-}
-
 REACHY_OUTPUT_SAMPLE_RATE = 16000
 
 
 @dataclass(slots=True)
 class ReachyController:
     robot: ReachyMini
-    _animation_thread: threading.Thread | None = None
-    _stop_animation: threading.Event = field(default_factory=threading.Event)
 
     @classmethod
     def connect(cls) -> Self:
@@ -66,39 +30,13 @@ class ReachyController:
         robot.media.start_playing()
         return cls(robot=robot)
 
-    def play_animation(self, name: str, loop: bool = False) -> None:
-        if name not in ANTENNA_ANIMATIONS:
-            return
-        self.stop_animation()
-        self._stop_animation.clear()
-        self._animation_thread = threading.Thread(
-            target=self._run_animation,
-            args=(ANTENNA_ANIMATIONS[name], loop),
-            daemon=True,
-        )
-        self._animation_thread.start()
-
-    def stop_animation(self) -> None:
-        if self._animation_thread is not None and self._animation_thread.is_alive():
-            self._stop_animation.set()
-            self._animation_thread.join(timeout=1.0)
-
-    def _run_animation(self, keyframes: list[AntennaKeyframe], loop: bool) -> None:
-        while not self._stop_animation.is_set():
-            for kf in keyframes:
-                if self._stop_animation.is_set():
-                    return
-                self.robot.goto_target(
-                    antennas=[kf.left, kf.right], duration=kf.duration
-                )
-                time.sleep(kf.duration)
-            if not loop:
-                break
-
     def record_audio(
-        self, max_duration: float, silence_threshold: float, silence_duration: float
+        self,
+        max_duration: float,
+        silence_threshold: float,
+        silence_duration: float,
     ) -> np.ndarray | None:
-        self._flush_audio_buffer()
+        self.flush_audio_buffer()
 
         sample_rate = self.robot.media.get_input_audio_samplerate()
         max_samples = int(max_duration * sample_rate)
@@ -141,7 +79,16 @@ class ReachyController:
             return None
         return np.concatenate(audio_chunks, axis=0).flatten()
 
-    def _flush_audio_buffer(self) -> None:
+    def play_beep(self, frequency: float = 880, duration: float = 0.15) -> None:
+        """Play a short beep sound."""
+        t = np.linspace(
+            0, duration, int(REACHY_OUTPUT_SAMPLE_RATE * duration), dtype=np.float32
+        )
+        beep = (np.sin(2 * np.pi * frequency * t) * 0.5).astype(np.float32)
+        self.robot.media.push_audio_sample(beep.reshape(-1, 1))
+        time.sleep(duration)
+
+    def flush_audio_buffer(self) -> None:
         while True:
             samples = self.robot.media.get_audio_sample()
             if samples is None or len(samples) == 0:
@@ -152,58 +99,86 @@ class ReachyController:
             return samples.mean(axis=1).astype(np.float32)
         return np.asarray(samples, dtype=np.float32).flatten()
 
-    def play_audio(self, audio: np.ndarray, sample_rate: int) -> None:
+    def write_audio(self, audio: np.ndarray, sample_rate: int) -> float:
+        """Write audio to the robot's media buffer. Returns duration in seconds."""
         audio = audio.flatten().astype(np.float32)
         max_val = np.abs(audio).max()
         if max_val > 0:
             audio = audio / max_val * 0.9
 
         if sample_rate != REACHY_OUTPUT_SAMPLE_RATE:
-            from scipy.signal import resample
-
             num_samples = int(len(audio) * REACHY_OUTPUT_SAMPLE_RATE / sample_rate)
             audio = resample(audio, num_samples).astype(np.float32)
 
         self.robot.media.push_audio_sample(audio.reshape(-1, 1))
-        time.sleep(len(audio) / REACHY_OUTPUT_SAMPLE_RATE)
+        return len(audio) / REACHY_OUTPUT_SAMPLE_RATE
 
     def disconnect(self) -> None:
-        self.stop_animation()
         self.robot.media.stop_recording()
         self.robot.media.stop_playing()
         self.robot.goto_sleep()
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, kw_only=True)
 class ReachyVoiceAssistant(VoiceAssistant):
     reachy: ReachyController
 
     def on_startup(self) -> None:
-        self.reachy.play_animation("startup", loop=False)
-        time.sleep(1.0)
-
-    def on_idle(self) -> None:
-        self.reachy.play_animation("idle", loop=True)
+        self.reachy.robot.goto_sleep()
+        self.reachy.play_beep(frequency=880, duration=0.15)
+        time.sleep(0.5)
 
     def on_wake_word(self) -> None:
-        self.reachy.play_animation("listening", loop=False)
+        self.reachy.robot.wake_up()
 
-    def on_thinking(self) -> None:
-        self.reachy.play_animation("thinking", loop=True)
+    def on_ready_for_command(self) -> None:
+        self.reachy.play_beep()
+        self.reachy.flush_audio_buffer()
 
-    def on_speaking(self) -> None:
-        self.reachy.play_animation("speaking", loop=True)
+    def on_sleep(self) -> None:
+        self.reachy.robot.goto_sleep()
 
     def on_shutdown(self) -> None:
         self.reachy.disconnect()
 
     def _record(self) -> np.ndarray | None:
         return self.reachy.record_audio(
-            self.max_record_duration, self.silence_threshold, self.silence_duration
+            self.max_record_duration,
+            self.silence_threshold,
+            self.silence_duration,
         )
 
-    def _play_audio(self, audio: np.ndarray) -> None:
-        self.reachy.play_audio(audio, self.tts_sample_rate)
+    def _playback_worker(
+        self,
+        audio_queue: queue.Queue[np.ndarray | None],
+        stats: dict[str, float],
+        playback_done: threading.Event | None = None,
+    ) -> None:
+        """Push audio to robot buffer as fast as possible, wait at end for playback."""
+        first_chunk = True
+        playback_start: float | None = None
+        total_duration = 0.0
+
+        while True:
+            audio = audio_queue.get()
+            if audio is None:
+                break
+            if first_chunk:
+                self.on_speaking()
+                playback_start = time.perf_counter()
+                first_chunk = False
+            total_duration += self.reachy.write_audio(audio, self.tts_sample_rate)
+
+        # Wait for actual playback to complete
+        if playback_start is not None:
+            elapsed = time.perf_counter() - playback_start
+            remaining = total_duration - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+
+        stats["playback_done"] = time.perf_counter()
+        if playback_done is not None:
+            playback_done.set()
 
 
 def main() -> None:
@@ -224,7 +199,7 @@ def main() -> None:
         llm_model=llm_model,
         tts_model=tts_model,
         tokenizer=tokenizer,
-        silence_threshold=0.01,
+        silence_threshold=0.05,
         console=console,
         reachy=reachy,
     )

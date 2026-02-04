@@ -1,4 +1,6 @@
 import logging
+import queue
+import threading
 import time
 import warnings
 from dataclasses import dataclass, field
@@ -54,30 +56,59 @@ class VoiceAssistant:
     silence_threshold: float
     input_sample_rate: int = 16000
     tts_sample_rate: int = 24000
-    silence_duration: float = 0.5
+    silence_duration: float = 0.7
     max_record_duration: float = 10.0
-    # Wake words
-    wake_words: tuple[str, ...] = ("reachy", "reach", "richy", "reechy", "hello")
+    # Wake/sleep phrases (must match as complete phrase)
+    wake_phrases: tuple[str, ...] = (
+        "hello reachy",
+        "hello reachi",
+        "hello richy",
+        "hello richi",
+        "hello ritchie",
+        "hello ritchi",
+        "hello ricci",
+        "hello reach",
+    )
+    sleep_phrases: tuple[str, ...] = (
+        "shutdown reachy",
+        "shutdown reachi",
+        "shutdown richy",
+        "shutdown richi",
+        "shutdown ritchie",
+        "shutdown ritchi",
+        "shutdown ricci",
+        "shutdown reach",
+        "shut down reachy",
+        "shut down reachi",
+        "shut down richy",
+        "shut down richi",
+        "shut down ritchie",
+        "shut down ritchi",
+        "shut down ricci",
+        "shut down reach",
+    )
     # LLM settings
     max_tokens: int = 512
     # Console
     console: Console = field(default_factory=Console)
+
+    def _log(self, message: str) -> None:
+        self.console.print(f"[{COLOR_COMMENT}]{message}[/{COLOR_COMMENT}]")
+
+    def _log_bold(self, message: str, color: str = COLOR_GREEN) -> None:
+        self.console.print(f"[bold {color}]{message}[/bold {color}]")
 
     # Lifecycle hooks - override in subclasses
     def on_startup(self) -> None:
         """Called after initialization, before entering main loop."""
         pass
 
-    def on_idle(self) -> None:
-        """Called when entering idle/listening state."""
-        pass
-
     def on_wake_word(self) -> None:
         """Called when wake word is detected."""
         pass
 
-    def on_thinking(self) -> None:
-        """Called when starting to process/think."""
+    def on_ready_for_command(self) -> None:
+        """Called after wake word, before recording command. Use for beep/delay."""
         pass
 
     def on_speaking(self) -> None:
@@ -88,26 +119,43 @@ class VoiceAssistant:
         """Called during cleanup."""
         pass
 
+    def on_sleep(self) -> None:
+        """Called when sleep word is detected, returning to standby."""
+        pass
+
     def _transcribe(self, audio: np.ndarray) -> str:
         result = self.stt_model.generate(audio)
         return result.text.strip()
 
-    def _has_wake_word(self, text: str) -> bool:
-        return any(word in text.lower() for word in self.wake_words)
+    def _has_wake_phrase(self, text: str) -> bool:
+        return any(phrase in text.lower() for phrase in self.wake_phrases)
 
-    def _play_audio(self, audio: np.ndarray) -> None:
-        """Play audio. Override in subclass for different audio output."""
+    def _has_sleep_phrase(self, text: str) -> bool:
+        return any(phrase in text.lower() for phrase in self.sleep_phrases)
+
+    def _rms(self, audio: np.ndarray) -> float:
+        return float(np.sqrt(np.mean(audio**2)))
+
+    def _normalize_audio(self, audio: np.ndarray) -> np.ndarray:
+        """Normalize audio to prevent clipping."""
         audio = audio.flatten().astype(np.float32)
         max_val = np.abs(audio).max()
         if max_val > 0:
             audio = audio / max_val * 0.9
-        with sd.OutputStream(
+        return audio.reshape(-1, 1)
+
+    def _create_output_stream(self) -> sd.OutputStream:
+        """Create an output stream. Override in subclass for different audio output."""
+        return sd.OutputStream(
             samplerate=self.tts_sample_rate,
             channels=1,
             dtype=np.float32,
             blocksize=4096,
-        ) as stream:
-            stream.write(audio.reshape(-1, 1))
+        )
+
+    def _write_audio(self, stream: sd.OutputStream, audio: np.ndarray) -> None:
+        """Write audio to stream. Override in subclass for different audio output."""
+        stream.write(self._normalize_audio(audio))
 
     def _record(self) -> np.ndarray | None:
         """Record audio. Override in subclass for different audio input."""
@@ -125,8 +173,7 @@ class VoiceAssistant:
         ) as stream:
             while len(audio_chunks) < max_chunks:
                 chunk, _ = stream.read(chunk_samples)
-                rms = np.sqrt(np.mean(chunk**2))
-                has_voice = rms > self.silence_threshold
+                has_voice = self._rms(chunk) > self.silence_threshold
 
                 if not recording:
                     if has_voice:
@@ -153,7 +200,7 @@ class VoiceAssistant:
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a voice assistant. All of your responses will be outputed via tts so keep use of punctuation minimal.",
+                    "content": "You are a voice assistant. All of your responses will be output via tts so keep use of punctuation minimal.",
                 },
                 {"role": "user", "content": user_input},
             ]
@@ -162,29 +209,88 @@ class VoiceAssistant:
             )
         return user_input
 
-    def _speak(self, text: str) -> None:
-        if not text.strip():
-            return
-        self.on_speaking()
-        detected_lang = detect(text)
-        voice, lang_code = KOKORO_VOICES.get(detected_lang, DEFAULT_VOICE)
-        for result in self.tts_model.generate(
-            text=text, voice=voice, lang_code=lang_code, speed=1.0
-        ):
-            self._play_audio(np.array(result.audio, dtype=np.float32))
+    def _tts_worker(
+        self,
+        phrase_queue: queue.Queue[str | None],
+        audio_queue: queue.Queue[np.ndarray | None],
+        stats: dict[str, float],
+    ) -> None:
+        """Worker thread: takes phrases, generates audio, puts in audio queue."""
+        first_audio = True
+        while True:
+            phrase = phrase_queue.get()
+            if phrase is None:
+                audio_queue.put(None)
+                break
+            if not phrase.strip():
+                continue
+            detected_lang = detect(phrase)
+            voice, lang_code = KOKORO_VOICES.get(detected_lang, DEFAULT_VOICE)
+            for result in self.tts_model.generate(
+                text=phrase, voice=voice, lang_code=lang_code, speed=1.0
+            ):
+                if first_audio:
+                    stats["first_audio"] = time.perf_counter()
+                    first_audio = False
+                audio_queue.put(np.array(result.audio, dtype=np.float32))
+
+    def _playback_worker(
+        self,
+        audio_queue: queue.Queue[np.ndarray | None],
+        stats: dict[str, float],
+        playback_done: threading.Event | None = None,
+    ) -> None:
+        """Worker thread: takes audio chunks and plays them with a single stream."""
+        first_chunk = True
+        with self._create_output_stream() as stream:
+            while True:
+                audio = audio_queue.get()
+                if audio is None:
+                    break
+                if first_chunk:
+                    self.on_speaking()
+                    first_chunk = False
+                self._write_audio(stream, audio)
+        stats["playback_done"] = time.perf_counter()
+        if playback_done is not None:
+            playback_done.set()
 
     def _respond(self, user_input: str, status) -> None:
-        self.on_thinking()
+        phrase_queue: queue.Queue[str | None] = queue.Queue()
+        audio_queue: queue.Queue[np.ndarray | None] = queue.Queue()
+        stats: dict[str, float] = {"start": time.perf_counter()}
+        playback_done = threading.Event()
+
+        tts_thread = threading.Thread(
+            target=self._tts_worker,
+            args=(phrase_queue, audio_queue, stats),
+            daemon=True,
+        )
+        playback_thread = threading.Thread(
+            target=self._playback_worker,
+            args=(audio_queue, stats, playback_done),
+            daemon=True,
+        )
+        tts_thread.start()
+        playback_thread.start()
 
         phrase_buffer = ""
         full_response = ""
-        is_speaking = False
+        first_token = True
+        token_count = 0
 
-        def make_display(text: str) -> Text:
-            style = COLOR_PURPLE if is_speaking else COLOR_CYAN
-            spinner = Spinner("dots", style=style)
+        def make_display(text: str, is_speaking: bool = False) -> Text:
+            if is_speaking:
+                spinner = Spinner("dots", style=COLOR_PURPLE)
+                label = "> Speaking: "
+            else:
+                spinner = Spinner(
+                    "dots",
+                    style=COLOR_PURPLE if not audio_queue.empty() else COLOR_CYAN,
+                )
+                label = "> Assistant: "
             rendered = cast(Text, spinner.render(self.console.get_time()))
-            return Text.assemble(rendered, " ", ("> Assistant: ", COLOR_COMMENT), text)
+            return Text.assemble(rendered, " ", (label, COLOR_COMMENT), text)
 
         status.stop()
 
@@ -197,31 +303,50 @@ class VoiceAssistant:
                 prompt=self._format_prompt(user_input),
                 max_tokens=self.max_tokens,
             ):
+                if first_token:
+                    stats["first_token"] = time.perf_counter()
+                    first_token = False
+                token_count += 1
                 phrase_buffer += chunk.text
                 full_response += chunk.text
                 live.update(make_display(full_response))
 
                 if "\n" in phrase_buffer:
                     phrase, phrase_buffer = phrase_buffer.rsplit("\n", 1)
-                    is_speaking = True
-                    live.update(make_display(full_response))
-                    self._speak(phrase)
-                    self.on_thinking()
-                    is_speaking = False
+                    phrase_queue.put(phrase)
 
             if phrase_buffer.strip():
-                is_speaking = True
-                live.update(make_display(full_response))
-                self._speak(phrase_buffer)
+                phrase_queue.put(phrase_buffer)
+
+            stats["llm_done"] = time.perf_counter()
+            phrase_queue.put(None)
+
+            while not playback_done.is_set():
+                live.update(make_display(full_response, is_speaking=True))
+                time.sleep(0.1)
+
+        tts_thread.join()
+        playback_thread.join()
+
+        start = stats["start"]
+        ttft = stats.get("first_token", start) - start
+        llm_time = stats.get("llm_done", start) - start
+        first_audio = stats.get("first_audio", start) - start
+        total_time = stats.get("playback_done", start) - start
+        tokens_per_sec = token_count / llm_time if llm_time > 0 else 0
+
+        self._log(
+            f"TTFT: {ttft:.2f}s | "
+            f"LLM: {llm_time:.2f}s ({tokens_per_sec:.1f} tok/s) | "
+            f"First audio: {first_audio:.2f}s | "
+            f"Total: {total_time:.2f}s"
+        )
 
         status.start()
 
     def run(self) -> None:
-        self.console.print(
-            f"[bold {COLOR_GREEN}]Voice Assistant Ready[/bold {COLOR_GREEN}] "
-            f"[{COLOR_COMMENT}](wake words: {', '.join(self.wake_words)})[/{COLOR_COMMENT}]"
-        )
-        self.console.print(f"[{COLOR_COMMENT}]Press Ctrl+C to exit[/{COLOR_COMMENT}]")
+        self._log_bold("Voice Assistant Ready", COLOR_GREEN)
+        self._log(f'Say "{self.wake_phrases[0]}" to start, Ctrl+C to exit')
         self.on_startup()
         awaiting_command = False
 
@@ -234,17 +359,18 @@ class VoiceAssistant:
                         )
                     else:
                         status.update(f"[bold {COLOR_BLUE}]Listening...")
-                        self.on_idle()
 
                     record_start = time.perf_counter()
                     audio = self._record()
                     record_time = time.perf_counter() - record_start
                     if audio is None:
+                        if awaiting_command:
+                            self._log("No input detected, going to sleep...")
+                            self.on_sleep()
                         awaiting_command = False
                         continue
 
                     status.update(f"[bold {COLOR_GREEN}]Transcribing...")
-                    self.on_thinking()
                     transcribe_start = time.perf_counter()
                     text = self._transcribe(audio)
                     transcribe_time = time.perf_counter() - transcribe_start
@@ -252,31 +378,32 @@ class VoiceAssistant:
                         continue
 
                     audio_duration = len(audio) / self.input_sample_rate
-                    self.console.print(
-                        f"[{COLOR_COMMENT}]Audio: {audio_duration:.1f}s | "
+                    self._log(
+                        f"Audio: {audio_duration:.1f}s | "
                         f"Record wait: {record_time:.1f}s | "
-                        f"Transcribe: {transcribe_time:.2f}s[/{COLOR_COMMENT}]"
+                        f"Transcribe: {transcribe_time:.2f}s"
                     )
 
                     if not awaiting_command:
-                        self.console.print(
-                            f"[{COLOR_COMMENT}]Heard: {text}[/{COLOR_COMMENT}]"
-                        )
-                        if self._has_wake_word(text):
-                            self.console.print(
-                                f"[bold {COLOR_YELLOW}]Wake word detected![/bold {COLOR_YELLOW}]"
-                            )
+                        self._log(f"Heard: {text}")
+                        if self._has_wake_phrase(text):
+                            self._log_bold("Wake phrase detected!", COLOR_YELLOW)
                             self.on_wake_word()
+                            self.on_ready_for_command()
                             awaiting_command = True
                         continue
 
-                    self.console.print(
-                        f"[{COLOR_COMMENT}]> You:[/{COLOR_COMMENT}] {text}"
-                    )
+                    if self._has_sleep_phrase(text):
+                        self._log_bold("Going to standby...", COLOR_BLUE)
+                        self.on_sleep()
+                        awaiting_command = False
+                        continue
+
+                    self._log(f"> You: {text}")
                     self._respond(text, status)
-                    awaiting_command = False
+                    self.on_ready_for_command()
         except KeyboardInterrupt:
-            self.console.print(f"\n[{COLOR_COMMENT}]Shutting down...[/{COLOR_COMMENT}]")
+            self._log("\nShutting down...")
         finally:
             self.on_shutdown()
 
