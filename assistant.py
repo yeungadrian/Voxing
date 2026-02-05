@@ -58,6 +58,7 @@ class VoiceAssistant:
     tts_sample_rate: int = 24000
     silence_duration: float = 0.7
     max_record_duration: float = 10.0
+    conversation_timeout: float = 30.0
     # Wake/sleep phrases (must match as complete phrase)
     wake_phrases: tuple[str, ...] = (
         "hello reachy",
@@ -349,6 +350,7 @@ class VoiceAssistant:
         self._log(f'Say "{self.wake_phrases[0]}" to start, Ctrl+C to exit')
         self.on_startup()
         awaiting_command = False
+        last_interaction: float = 0.0
 
         try:
             with self.console.status(f"[bold {COLOR_BLUE}]Listening...") as status:
@@ -365,9 +367,11 @@ class VoiceAssistant:
                     record_time = time.perf_counter() - record_start
                     if audio is None:
                         if awaiting_command:
-                            self._log("No input detected, going to sleep...")
-                            self.on_sleep()
-                        awaiting_command = False
+                            elapsed = time.perf_counter() - last_interaction
+                            if elapsed >= self.conversation_timeout:
+                                self._log("Conversation timeout, going to sleep...")
+                                self.on_sleep()
+                                awaiting_command = False
                         continue
 
                     status.update(f"[bold {COLOR_GREEN}]Transcribing...")
@@ -391,6 +395,7 @@ class VoiceAssistant:
                             self.on_wake_word()
                             self.on_ready_for_command()
                             awaiting_command = True
+                            last_interaction = time.perf_counter()
                         continue
 
                     if self._has_sleep_phrase(text):
@@ -402,6 +407,7 @@ class VoiceAssistant:
                     self._log(f"> You: {text}")
                     self._respond(text, status)
                     self.on_ready_for_command()
+                    last_interaction = time.perf_counter()
         except KeyboardInterrupt:
             self._log("\nShutting down...")
         finally:
