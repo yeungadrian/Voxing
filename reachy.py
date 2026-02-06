@@ -12,8 +12,11 @@ from scipy.signal import resample
 from assistant import (
     COLOR_BLUE,
     COLOR_GREEN,
+    ResponseStats,
     VoiceAssistant,
     load_models,
+    normalize_audio,
+    rms,
 )
 
 REACHY_OUTPUT_SAMPLE_RATE = 16000
@@ -57,7 +60,7 @@ class ReachyController:
 
             chunk = self._to_mono(samples)
             total_samples += len(chunk)
-            has_voice = np.sqrt(np.mean(chunk**2)) > silence_threshold
+            has_voice = rms(chunk) > silence_threshold
 
             if not recording:
                 if has_voice:
@@ -101,10 +104,7 @@ class ReachyController:
 
     def write_audio(self, audio: np.ndarray, sample_rate: int) -> float:
         """Write audio to the robot's media buffer. Returns duration in seconds."""
-        audio = audio.flatten().astype(np.float32)
-        max_val = np.abs(audio).max()
-        if max_val > 0:
-            audio = audio / max_val * 0.9
+        audio = normalize_audio(audio).flatten()
 
         if sample_rate != REACHY_OUTPUT_SAMPLE_RATE:
             num_samples = int(len(audio) * REACHY_OUTPUT_SAMPLE_RATE / sample_rate)
@@ -151,11 +151,10 @@ class ReachyVoiceAssistant(VoiceAssistant):
     def _playback_worker(
         self,
         audio_queue: queue.Queue[np.ndarray | None],
-        stats: dict[str, float],
+        stats: ResponseStats,
         playback_done: threading.Event | None = None,
     ) -> None:
         """Push audio to robot buffer as fast as possible, wait at end for playback."""
-        first_chunk = True
         playback_start: float | None = None
         total_duration = 0.0
 
@@ -163,10 +162,8 @@ class ReachyVoiceAssistant(VoiceAssistant):
             audio = audio_queue.get()
             if audio is None:
                 break
-            if first_chunk:
-                self.on_speaking()
+            if playback_start is None:
                 playback_start = time.perf_counter()
-                first_chunk = False
             total_duration += self.reachy.write_audio(audio, self.tts_sample_rate)
 
         # Wait for actual playback to complete
@@ -176,7 +173,7 @@ class ReachyVoiceAssistant(VoiceAssistant):
             if remaining > 0:
                 time.sleep(remaining)
 
-        stats["playback_done"] = time.perf_counter()
+        stats.playback_done = time.perf_counter()
         if playback_done is not None:
             playback_done.set()
 
