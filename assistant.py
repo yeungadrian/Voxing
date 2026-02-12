@@ -3,9 +3,10 @@ import queue
 import threading
 import time
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from typing import Callable, cast
+from typing import cast
 
 import mlx.nn as nn
 import numpy as np
@@ -18,6 +19,7 @@ from mlx_lm.tokenizer_utils import TokenizerWrapper
 from rich.console import Console
 from rich.live import Live
 from rich.spinner import Spinner
+from rich.status import Status
 from rich.text import Text
 
 logging.getLogger("mlx").setLevel(logging.ERROR)
@@ -34,39 +36,44 @@ COLOR_COMMENT = "#565f89"
 
 
 @dataclass
-class ResponseStats:
-    start: float = field(default_factory=time.perf_counter)
-    first_token: float | None = None
-    first_audio: float | None = None
-    llm_done: float | None = None
-    playback_done: float | None = None
+class InteractionStats:
+    # Input phase (durations, populated by run())
+    audio_duration: float = 0.0
+    record_time: float = 0.0
+    transcribe_time: float = 0.0
+    # Response phase (timestamps, initialized to start in _respond())
+    start: float = 0.0
+    first_token: float = 0.0
+    first_audio: float = 0.0
+    llm_done: float = 0.0
+    tts_done: float = 0.0
+    playback_done: float = 0.0
     token_count: int = 0
 
     def log(self, console_log: Callable[[str], None]) -> None:
-        start = self.start
-        ttft = (self.first_token or start) - start
-        llm_time = (self.llm_done or start) - start
-        first_audio = (self.first_audio or start) - start
-        total_time = (self.playback_done or start) - start
-        tokens_per_sec = self.token_count / llm_time if llm_time > 0 else 0
+        s = self.start
+        decode_time = self.llm_done - self.first_token
+        tps = self.token_count / decode_time if decode_time > 0 else 0
 
         console_log(
-            f"TTFT: {ttft:.2f}s | "
-            f"LLM: {llm_time:.2f}s ({tokens_per_sec:.1f} tok/s) | "
-            f"First audio: {first_audio:.2f}s | "
-            f"Total: {total_time:.2f}s"
+            f"TTFT: {self.first_token - s:.2f}s | "
+            f"LLM: {self.llm_done - s:.2f}s ({tps:.1f} tok/s) | "
+            f"First audio: {self.first_audio - s:.2f}s | "
+            f"TTS done: {self.tts_done - s:.2f}s | "
+            f"Total: {self.playback_done - s:.2f}s"
         )
 
+
 KOKORO_VOICES = {
-    "en": ("af_heart", "a"),        # American English - Grade A
-    "es": ("ef_dora", "e"),         # Spanish
-    "fr": ("ff_siwis", "f"),        # French - Grade B-
-    "hi": ("hf_alpha", "h"),        # Hindi - Grade C
-    "it": ("if_sara", "i"),         # Italian - Grade C
-    "ja": ("jf_alpha", "j"),        # Japanese - Grade C+
-    "pt": ("pf_dora", "p"),         # Brazilian Portuguese
-    "zh-cn": ("zf_xiaobei", "z"),   # Mandarin Chinese
-    "zh-tw": ("zf_xiaobei", "z"),   # Mandarin Chinese
+    "en": ("af_heart", "a"),  # American English - Grade A
+    "es": ("ef_dora", "e"),  # Spanish
+    "fr": ("ff_siwis", "f"),  # French - Grade B-
+    "hi": ("hf_alpha", "h"),  # Hindi - Grade C
+    "it": ("if_sara", "i"),  # Italian - Grade C
+    "ja": ("jf_alpha", "j"),  # Japanese - Grade C+
+    "pt": ("pf_dora", "p"),  # Brazilian Portuguese
+    "zh-cn": ("zf_xiaobei", "z"),  # Mandarin Chinese
+    "zh-tw": ("zf_xiaobei", "z"),  # Mandarin Chinese
 }
 
 
@@ -187,30 +194,31 @@ class VoiceAssistant:
         return np.concatenate(audio_chunks, axis=0).flatten()
 
     def _format_prompt(self, user_input: str) -> str:
-        if self.tokenizer.chat_template:
-            messages = [
-                {
-                    "role": "system",
-                    "content": "You are a voice assistant. All of your responses will be output via tts so keep use of punctuation minimal.",
-                },
-                {"role": "user", "content": user_input},
-            ]
-            return self.tokenizer.apply_chat_template(
-                messages, add_generation_prompt=True, tokenize=False
-            )
-        return user_input
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a voice assistant. "
+                "All of your responses will be output via tts "
+                "so keep use of punctuation minimal.",
+            },
+            {"role": "user", "content": user_input},
+        ]
+        return self.tokenizer.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=False
+        )
 
     def _tts_worker(
         self,
         phrase_queue: queue.Queue[str | None],
         audio_queue: queue.Queue[np.ndarray | None],
-        stats: ResponseStats,
+        stats: InteractionStats,
     ) -> None:
         """Worker thread: takes phrases, generates audio, puts in audio queue."""
         first_audio = True
         while True:
             phrase = phrase_queue.get()
             if phrase is None:
+                stats.tts_done = time.perf_counter()
                 audio_queue.put(None)
                 break
             if not phrase.strip():
@@ -228,8 +236,8 @@ class VoiceAssistant:
     def _playback_worker(
         self,
         audio_queue: queue.Queue[np.ndarray | None],
-        stats: ResponseStats,
-        playback_done: threading.Event | None = None,
+        stats: InteractionStats,
+        playback_done: threading.Event,
     ) -> None:
         """Worker thread: takes audio chunks and plays them with a single stream."""
         with sd.OutputStream(
@@ -244,8 +252,7 @@ class VoiceAssistant:
                     break
                 stream.write(normalize_audio(audio))
         stats.playback_done = time.perf_counter()
-        if playback_done is not None:
-            playback_done.set()
+        playback_done.set()
 
     def _make_response_display(
         self, text: str, is_speaking: bool, audio_queue_empty: bool
@@ -260,10 +267,14 @@ class VoiceAssistant:
         rendered = cast(Text, spinner.render(self.console.get_time()))
         return Text.assemble(rendered, " ", (label, COLOR_COMMENT), text)
 
-    def _respond(self, user_input: str, status) -> None:
+    def _respond(
+        self, user_input: str, status: Status, stats: InteractionStats
+    ) -> None:
+        now = time.perf_counter()
+        stats.start = stats.first_token = stats.first_audio = now
+        stats.llm_done = stats.tts_done = stats.playback_done = now
         phrase_queue: queue.Queue[str | None] = queue.Queue()
         audio_queue: queue.Queue[np.ndarray | None] = queue.Queue()
-        stats = ResponseStats()
         playback_done = threading.Event()
 
         tts_thread = threading.Thread(
@@ -294,13 +305,15 @@ class VoiceAssistant:
                 prompt=self._format_prompt(user_input),
                 max_tokens=self.max_tokens,
             ):
-                if stats.first_token is None:
+                if stats.token_count == 0:
                     stats.first_token = time.perf_counter()
                 stats.token_count += 1
                 phrase_buffer += chunk.text
                 full_response += chunk.text
                 live.update(
-                    self._make_response_display(full_response, False, audio_queue.empty())
+                    self._make_response_display(
+                        full_response, False, audio_queue.empty()
+                    )
                 )
 
                 if "\n" in phrase_buffer:
@@ -339,9 +352,10 @@ class VoiceAssistant:
                     else:
                         status.update(f"[bold {COLOR_BLUE}]Listening...")
 
+                    stats = InteractionStats()
                     record_start = time.perf_counter()
                     audio = self._record()
-                    record_time = time.perf_counter() - record_start
+                    stats.record_time = time.perf_counter() - record_start
                     if audio is None:
                         if awaiting_command:
                             elapsed = time.perf_counter() - last_interaction
@@ -354,15 +368,15 @@ class VoiceAssistant:
                     status.update(f"[bold {COLOR_GREEN}]Transcribing...")
                     transcribe_start = time.perf_counter()
                     text = self._transcribe(audio)
-                    transcribe_time = time.perf_counter() - transcribe_start
+                    stats.transcribe_time = time.perf_counter() - transcribe_start
                     if not text:
                         continue
 
-                    audio_duration = len(audio) / self.input_sample_rate
+                    stats.audio_duration = len(audio) / self.input_sample_rate
                     self._log(
-                        f"Audio: {audio_duration:.1f}s | "
-                        f"Record wait: {record_time:.1f}s | "
-                        f"Transcribe: {transcribe_time:.2f}s"
+                        f"Audio: {stats.audio_duration:.1f}s | "
+                        f"Record wait: {stats.record_time:.1f}s | "
+                        f"Transcribe: {stats.transcribe_time:.2f}s"
                     )
 
                     if not awaiting_command:
@@ -382,7 +396,7 @@ class VoiceAssistant:
                         continue
 
                     self._log(f"> You: {text}")
-                    self._respond(text, status)
+                    self._respond(text, status, stats)
                     self.on_ready_for_command()
                     last_interaction = time.perf_counter()
         except KeyboardInterrupt:
@@ -394,7 +408,7 @@ class VoiceAssistant:
 def load_models(
     console: Console,
 ) -> tuple[nn.Module, nn.Module, nn.Module, TokenizerWrapper]:
-    """Load and warm up all models. Returns (stt_model, llm_model, tts_model, tokenizer)."""
+    """Load and warm up all models."""
     with console.status(f"[bold {COLOR_BLUE}]Loading STT model...") as status:
         stt_model = load_stt_model("mlx-community/whisper-large-v3-turbo-asr-fp16")
 

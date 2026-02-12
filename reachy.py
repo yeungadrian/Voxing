@@ -12,7 +12,7 @@ from scipy.signal import resample
 from assistant import (
     COLOR_BLUE,
     COLOR_GREEN,
-    ResponseStats,
+    InteractionStats,
     VoiceAssistant,
     load_models,
     normalize_audio,
@@ -151,8 +151,8 @@ class ReachyVoiceAssistant(VoiceAssistant):
     def _playback_worker(
         self,
         audio_queue: queue.Queue[np.ndarray | None],
-        stats: ResponseStats,
-        playback_done: threading.Event | None = None,
+        stats: InteractionStats,
+        playback_done: threading.Event,
     ) -> None:
         """Push audio to robot buffer as fast as possible, wait at end for playback."""
         playback_start: float | None = None
@@ -174,8 +174,7 @@ class ReachyVoiceAssistant(VoiceAssistant):
                 time.sleep(remaining)
 
         stats.playback_done = time.perf_counter()
-        if playback_done is not None:
-            playback_done.set()
+        playback_done.set()
 
 
 def main() -> None:
