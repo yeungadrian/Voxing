@@ -1,0 +1,130 @@
+/* Reachy TUI - Tokyo Night color scheme */
+
+/* Tokyo Night color variables */
+* {
+    /* Foreground/text colors */
+    color: #c0caf5;
+}
+
+/* App-wide */
+Screen {
+    background: #1a1b26;
+    color: #c0caf5;
+}
+
+/* Main conversation area */
+#conversation-log {
+    height: 1fr;
+    background: transparent;
+    padding: 1;
+    margin: 0 0;
+    scrollbar-background: $panel 20%;
+    scrollbar-color: $primary;
+    scrollbar-gutter: stable;
+}
+
+/* Bottom section (docks above footer) */
+#bottom-section {
+    dock: bottom;
+    height: auto;
+    background: transparent;
+}
+
+/* Status bar */
+#status-bar {
+    height: auto;
+    background: transparent;
+    border-top: solid $primary 20%;
+    padding: 0 1;
+    margin: 0 0 0 0;
+}
+
+#status-panel {
+    width: 1fr;
+    color: #c0caf5;
+}
+
+#metrics-panel {
+    width: auto;
+    color: #a9b1d6;
+}
+
+/* Input container */
+#input-container {
+    height: auto;
+    padding: 0 1;
+    margin: 0 0;
+    background: transparent;
+    border-top: solid $panel 40%;
+    border-bottom: solid $panel 40%;
+}
+
+#command-hint {
+    color: #565f89;
+    background: transparent;
+    padding: 0 1;
+    height: auto;
+}
+
+#command-hint.hidden {
+    display: none;
+}
+
+TextArea {
+    width: 100%;
+    background: transparent;
+    border: none;
+    height: auto;
+    max-height: 10;
+    margin: 0 0;
+    padding: 0 1;
+
+    &:focus {
+        border: none;
+        background: transparent;
+    }
+}
+
+TextArea > .text-area--cursor-line {
+    background: transparent;
+}
+
+TextArea > .text-area--selection {
+    background: #283457;
+    color: #c0caf5;
+}
+
+/* Footer */
+Footer {
+    background: transparent;
+    border-top: solid $panel 30%;
+
+    .footer-key--key {
+        color: #c0caf5;
+        background: transparent;
+        padding: 0 1;
+    }
+
+    .footer-key--description {
+        color: #a9b1d6;
+        background: transparent;
+        padding: 0 1 0 0;
+    }
+}
+
+/* State-specific styling */
+.state-standby {
+    color: $primary 60%;
+}
+
+.state-awake {
+    color: $success;
+}
+
+.state-processing {
+    color: $warning;
+}
+
+.state-speaking {
+    color: $accent;
+}
