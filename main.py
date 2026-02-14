@@ -1,11 +1,11 @@
-"""Entry point for Reachy TUI application."""
+"""Entry point for Vox TUI application."""
 
-from reachy_tui.app import ReachyTuiApp
+from vox.app import VoxApp
 
 
 def main() -> None:
-    """Run the Reachy TUI application."""
-    app = ReachyTuiApp()
+    """Run the Vox TUI application."""
+    app = VoxApp()
     app.run()
 
 

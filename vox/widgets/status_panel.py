@@ -8,7 +8,7 @@ from textual.timer import Timer
 from textual.visual import VisualType
 from textual.widgets import Static
 
-from reachy_tui.state import AppState
+from vox.state import AppState
 
 
 class StatusPanel(Static):
@@ -67,11 +67,10 @@ class StatusPanel(Static):
     def watch_current_state(self, new_state: AppState) -> None:
         """Called when current_state changes."""
         self.last_update = datetime.now()
-        if new_state != AppState.READY:
-            self.status_message = None
-            if self._ephemeral_timer is not None:
-                self._ephemeral_timer.stop()
-                self._ephemeral_timer = None
+        self.status_message = None
+        if self._ephemeral_timer is not None:
+            self._ephemeral_timer.stop()
+            self._ephemeral_timer = None
         if self._animation_timer is not None:
             if new_state == AppState.READY:
                 self._animation_timer.pause()

@@ -4,7 +4,7 @@ from rich.text import Text
 from textual.visual import VisualType
 from textual.widgets import Static
 
-from reachy_tui.state import InteractionStats
+from vox.state import InteractionStats
 
 
 class MetricsPanel(Static):

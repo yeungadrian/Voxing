@@ -1,4 +1,4 @@
-"""State management data structures for Reachy TUI."""
+"""State management data structures for Vox TUI."""
 
 from dataclasses import dataclass
 from enum import Enum

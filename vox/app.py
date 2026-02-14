@@ -1,4 +1,4 @@
-"""Main Reachy TUI application."""
+"""Main Vox TUI application."""
 
 import asyncio
 import contextlib
@@ -14,14 +14,14 @@ from textual.events import Key
 from textual.reactive import reactive
 from textual.widgets import Footer, Label, TextArea
 
-from reachy_tui.models import Models, load_llm, load_stt, load_tts
-from reachy_tui.models import audio as audio_mod
-from reachy_tui.models import llm as llm_mod
-from reachy_tui.models import stt as stt_mod
-from reachy_tui.models import tts as tts_mod
-from reachy_tui.state import AppState, InteractionStats
-from reachy_tui.themes import TOKYO_NIGHT
-from reachy_tui.widgets import ConversationLog, MetricsPanel, StatusPanel
+from vox.models import Models, load_llm, load_stt, load_tts
+from vox.models import audio as audio_mod
+from vox.models import llm as llm_mod
+from vox.models import stt as stt_mod
+from vox.models import tts as tts_mod
+from vox.state import AppState, InteractionStats
+from vox.themes import TOKYO_NIGHT
+from vox.widgets import ConversationLog, MetricsPanel, StatusPanel
 
 COMMAND_DESCRIPTIONS: dict[str, str] = {
     "/record": "Record and process voice",
@@ -32,7 +32,7 @@ COMMAND_DESCRIPTIONS: dict[str, str] = {
 }
 COMMANDS = list(COMMAND_DESCRIPTIONS)
 
-WELCOME_MESSAGE = "Welcome to Reachy! Type a message, /record, or /transcribe."
+WELCOME_MESSAGE = "Welcome to Vox! Type a message, /record, or /transcribe."
 
 
 def _longest_common_prefix(strings: list[str]) -> str:
@@ -46,11 +46,11 @@ def _longest_common_prefix(strings: list[str]) -> str:
     return prefix
 
 
-class ReachyTuiApp(App):
-    """Reachy Voice Assistant TUI Application."""
+class VoxApp(App):
+    """Vox Voice Assistant TUI Application."""
 
     CSS_PATH = "styles.css"
-    TITLE = "Reachy Voice Assistant"
+    TITLE = "Vox Voice Assistant"
 
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
@@ -61,7 +61,7 @@ class ReachyTuiApp(App):
     current_metrics: reactive[InteractionStats | None] = reactive(None)
 
     def __init__(self) -> None:
-        """Initialize the Reachy TUI app."""
+        """Initialize the Vox TUI app."""
         super().__init__()
         self.models: Models = None
         self.is_processing = False
@@ -218,8 +218,7 @@ class ReachyTuiApp(App):
                     self.exit()
                 else:
                     conv_log.add_system_message(
-                        f"Unknown command: {command}. "
-                        f"Available: {', '.join(COMMANDS)}",
+                        f"Unknown command: {command}. Available: {', '.join(COMMANDS)}",
                         style="red",
                     )
             else:

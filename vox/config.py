@@ -4,9 +4,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Reachy TUI configuration, overridable via REACHY_ env vars or .env file."""
+    """Vox TUI configuration, overridable via VOX_ env vars or .env file."""
 
-    model_config = SettingsConfigDict(env_prefix="REACHY_")
+    model_config = SettingsConfigDict(env_prefix="VOX_")
 
     stt_model: str = "mlx-community/parakeet-tdt-0.6b-v3"
     llm_model: str = "LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit"

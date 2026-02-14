@@ -15,7 +15,7 @@ from mlx_audio.tts.utils import load_model as load_tts_model
 from mlx_lm import load
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from reachy_tui.config import settings
+from vox.config import settings
 
 logging.getLogger("mlx").setLevel(logging.ERROR)
 logging.getLogger("mlx_audio").setLevel(logging.ERROR)

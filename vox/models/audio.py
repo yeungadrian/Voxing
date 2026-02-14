@@ -6,7 +6,7 @@ from functools import partial
 import numpy as np
 import sounddevice as sd
 
-from reachy_tui.config import settings
+from vox.config import settings
 
 
 def _rms(audio: np.ndarray) -> float:

@@ -8,7 +8,7 @@ from mlx_lm import stream_generate
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from reachy_tui.config import settings
+from vox.config import settings
 
 type ChatMessage = dict[str, str]
 

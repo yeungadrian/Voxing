@@ -8,13 +8,35 @@ import numpy as np
 import sounddevice as sd
 from langdetect import detect
 
-from reachy_tui.config import settings
+from vox.config import settings
 
-SUPPORTED_LANGS = frozenset({
-    "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi",
-    "it", "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv",
-    "sw", "tr", "zh",
-})
+SUPPORTED_LANGS = frozenset(
+    {
+        "ar",
+        "da",
+        "de",
+        "el",
+        "en",
+        "es",
+        "fi",
+        "fr",
+        "he",
+        "hi",
+        "it",
+        "ja",
+        "ko",
+        "ms",
+        "nl",
+        "no",
+        "pl",
+        "pt",
+        "ru",
+        "sv",
+        "sw",
+        "tr",
+        "zh",
+    }
+)
 
 
 def _detect_lang(text: str) -> str:
@@ -51,6 +73,4 @@ def _synthesize_and_play(tts_model: nn.Module, text: str) -> None:
 async def speak(tts_model: nn.Module, text: str) -> None:
     """Synthesize and play speech asynchronously."""
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(
-        None, partial(_synthesize_and_play, tts_model, text)
-    )
+    await loop.run_in_executor(None, partial(_synthesize_and_play, tts_model, text))
