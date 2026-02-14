@@ -1,8 +1,7 @@
 """Metrics panel widget for displaying performance statistics."""
 
-from typing import Any
-
 from rich.text import Text
+from textual.visual import VisualType
 from textual.widgets import Static
 
 from reachy_tui.state import InteractionStats
@@ -11,11 +10,29 @@ from reachy_tui.state import InteractionStats
 class MetricsPanel(Static):
     """Widget for displaying performance metrics."""
 
-    DEFAULT_CLASSES = "metrics-panel"
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        content: VisualType = "",
+        *,
+        expand: bool = False,
+        shrink: bool = False,
+        markup: bool = True,
+        name: str | None = None,
+        id: str | None = None,
+        classes: str | None = None,
+        disabled: bool = False,
+    ) -> None:
         """Initialize the metrics panel."""
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            content,
+            expand=expand,
+            shrink=shrink,
+            markup=markup,
+            name=name,
+            id=id,
+            classes=classes,
+            disabled=disabled,
+        )
         self.current_stats: InteractionStats | None = None
         self.update_display()
 

@@ -10,11 +10,33 @@ from textual.widgets import RichLog
 class ConversationLog(RichLog):
     """Widget for displaying conversation history with rich formatting."""
 
-    DEFAULT_CLASSES = "conversation-log"
-
-    def __init__(self, **kwargs: object) -> None:
+    def __init__(
+        self,
+        *,
+        max_lines: int | None = None,
+        min_width: int = 78,
+        wrap: bool = False,
+        highlight: bool = False,
+        markup: bool = False,
+        auto_scroll: bool = True,
+        name: str | None = None,
+        id: str | None = None,
+        classes: str | None = None,
+        disabled: bool = False,
+    ) -> None:
         """Initialize the conversation log."""
-        super().__init__(**kwargs)  # ty: ignore[invalid-argument-type]
+        super().__init__(
+            max_lines=max_lines,
+            min_width=min_width,
+            wrap=wrap,
+            highlight=highlight,
+            markup=markup,
+            auto_scroll=auto_scroll,
+            name=name,
+            id=id,
+            classes=classes,
+            disabled=disabled,
+        )
         self._streaming_start: datetime | None = None
         self._streaming_text: str = ""
         self._streaming_line_count: int = 0
