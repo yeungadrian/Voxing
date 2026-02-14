@@ -40,6 +40,13 @@ class MetricsPanel(Static):
             content.append("  TTS: ", style="dim")
             content.append(f"{stats.tts_time:.2f}s", style=PALETTE_4)
 
+        if stats.max_tokens > 0:
+            content.append("  Tokens: ", style="dim")
+            content.append(
+                f"{stats.total_conversation_tokens}/{stats.max_tokens}",
+                style=PALETTE_4,
+            )
+
         self.update(content)
 
     def clear_metrics(self) -> None:

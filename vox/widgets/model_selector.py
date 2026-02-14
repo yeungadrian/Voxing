@@ -107,7 +107,8 @@ class ModelSelector(ModalScreen[ModelSelection | None]):
         ]:
             radio_set = self.query_one(f"#{radio_set_id}", RadioSet)
             for i, button in enumerate(radio_set.query(RadioButton)):
-                if models[i] == current:
+                model = models[i]
+                if model == current:
                     button.add_class("model-loaded")
                 else:
                     button.remove_class("model-loaded")

@@ -13,6 +13,25 @@ from vox.models._streaming import sync_to_async_iter
 type ChatMessage = dict[str, str]
 
 
+def count_tokens(tokenizer: TokenizerWrapper, text: str) -> int:
+    """Count the number of tokens in a text string."""
+    return len(tokenizer.encode(text))
+
+
+def count_conversation_tokens(
+    tokenizer: TokenizerWrapper,
+    history: list[ChatMessage],
+    system_prompt: str = settings.system_prompt,
+) -> int:
+    """Count total tokens in conversation history including system prompt."""
+    messages: list[ChatMessage] = [{"role": "system", "content": system_prompt}]
+    messages.extend(history)
+    prompt = tokenizer.apply_chat_template(
+        messages, add_generation_prompt=False, tokenize=False
+    )
+    return count_tokens(tokenizer, prompt)
+
+
 def _format_prompt(
     tokenizer: TokenizerWrapper,
     user_input: str,

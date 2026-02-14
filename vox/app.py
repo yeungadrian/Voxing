@@ -286,6 +286,10 @@ class VoxApp(App):
         self.chat_history.append({"role": "user", "content": text})
         self.chat_history.append({"role": "assistant", "content": full_response})
 
+        total_tokens = llm_mod.count_conversation_tokens(
+            self.models.tokenizer, self.chat_history
+        )
+
         llm_time = time.time() - llm_start
         tts_time: float | None = None
 
@@ -305,6 +309,8 @@ class VoxApp(App):
             llm_time=llm_time,
             tts_time=tts_time,
             tokens=token_count,
+            total_conversation_tokens=total_tokens,
+            max_tokens=settings.llm_max_tokens,
         )
         metrics_panel.update_metrics(stats)
         self.state = AppState.READY

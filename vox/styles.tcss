@@ -170,12 +170,12 @@ ModelSelector {
     text-style: bold;
 }
 
-#model-tabs Underline .underline--bar {
-    color: $panel;
+#model-tabs Tabs:blur Tab {
+    opacity: 0.5;
 }
 
-#model-tabs Underline .underline--highlight {
-    color: $primary;
+#model-tabs Underline {
+    display: none;
 }
 
 RadioSet {
@@ -187,6 +187,21 @@ RadioSet {
 
 RadioSet:focus {
     border: none;
+}
+
+RadioSet:blur {
+    opacity: 0.5;
+}
+
+RadioSet:focus > RadioButton.-selected > .toggle--label {
+    background: transparent !important;
+    color: $primary;
+    text-style: bold;
+}
+
+RadioSet:blur > RadioButton.-selected > .toggle--label {
+    background: transparent !important;
+    color: $primary;
 }
 
 RadioButton {
@@ -214,11 +229,15 @@ RadioButton.-selected {
 }
 
 RadioButton.model-loaded .toggle--button {
-    color: $primary;
+    color: $success;
     background: transparent;
 }
 
 RadioButton.model-loaded .toggle--label {
+    color: #c0caf5;
+}
+
+RadioButton.model-loaded.-selected .toggle--label {
     color: $primary;
     text-style: bold;
 }

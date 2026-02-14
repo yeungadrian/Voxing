@@ -14,11 +14,10 @@ STT_MODELS: tuple[str, ...] = (
 LLM_MODELS: tuple[str, ...] = (
     DEFAULT_LLM_MODEL,
     "mlx-community/Nanbeige4.1-3B-8bit",
+    "Qwen/Qwen3-0.6B-MLX-4bit",
 )
 
-TTS_MODELS: tuple[str, ...] = (
-    DEFAULT_TTS_MODEL,
-)
+TTS_MODELS: tuple[str, ...] = (DEFAULT_TTS_MODEL,)
 
 
 class Settings(BaseSettings):

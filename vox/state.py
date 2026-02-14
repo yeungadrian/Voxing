@@ -29,6 +29,8 @@ class InteractionStats:
     tts_time: float | None = None
     tokens: int = 0
     tokens_per_sec: float = 0.0
+    total_conversation_tokens: int = 0
+    max_tokens: int = 0
 
     def __post_init__(self) -> None:
         """Calculate derived metrics."""

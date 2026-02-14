@@ -18,10 +18,7 @@ KOKORO_VOICES: dict[str, tuple[str, str]] = {
     "fr": ("ff_siwis", "f"),
     "hi": ("hf_alpha", "h"),
     "it": ("if_sara", "i"),
-    "ja": ("jf_alpha", "j"),
     "pt": ("pf_dora", "p"),
-    "zh-cn": ("zf_xiaobei", "z"),
-    "zh-tw": ("zf_xiaobei", "z"),
 }
 
 DEFAULT_VOICE = ("af_heart", "a")
