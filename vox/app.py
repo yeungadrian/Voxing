@@ -197,8 +197,8 @@ class VoxApp(App):
                 for i, cmd in enumerate(matches):
                     if i > 0:
                         hint_text.append("\n")
-                    hint_text.append(cmd, style=f"bold {BLUE}")
-                    hint_text.append(f" {COMMAND_DESCRIPTIONS[cmd]}", style=COMMENT)
+                    hint_text.append(cmd, style="bold #7aa2f7")
+                    hint_text.append(f" {COMMAND_DESCRIPTIONS[cmd]}", style="#7aa2f7")
                 hint_label.update(hint_text)
                 hint_label.remove_class("hidden")
             else:

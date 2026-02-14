@@ -1,7 +1,5 @@
 """Status panel widget for displaying current app state."""
 
-from datetime import datetime
-
 from rich.text import Text
 from textual.reactive import reactive
 from textual.timer import Timer
@@ -18,7 +16,6 @@ class StatusPanel(Static):
     current_state: reactive[AppState] = reactive(AppState.LOADING)
     tts_enabled: reactive[bool] = reactive(False)
     status_message: reactive[str | None] = reactive(None)
-    last_update: reactive[datetime] = reactive(datetime.now())
     _frame_index: int = 0
     _animation_timer: Timer | None = None
     _ephemeral_timer: Timer | None = None
@@ -55,7 +52,6 @@ class StatusPanel(Static):
 
     def watch_current_state(self, new_state: AppState) -> None:
         """Called when current_state changes."""
-        self.last_update = datetime.now()
         if self._animation_timer is not None:
             if new_state == AppState.READY:
                 self._animation_timer.pause()
@@ -84,9 +80,6 @@ class StatusPanel(Static):
         tts_label = "TTS:ON" if self.tts_enabled else "TTS:OFF"
         tts_style = "magenta" if self.tts_enabled else "dim"
         content.append(f"  •  {tts_label}", style=tts_style)
-
-        time_str = self.last_update.strftime("%H:%M:%S")
-        content.append(f"  •  {time_str}", style="dim")
 
         self.update(content)
 

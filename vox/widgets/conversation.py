@@ -1,7 +1,5 @@
 """Conversation log widget for displaying chat history."""
 
-from datetime import datetime
-
 from rich.text import Text
 from textual.geometry import Size
 from textual.widgets import RichLog
@@ -10,31 +8,27 @@ from textual.widgets import RichLog
 class ConversationLog(RichLog):
     """Widget for displaying conversation history with rich formatting."""
 
-    _streaming_start: datetime | None = None
+    _is_streaming: bool = False
     _streaming_text: str = ""
     _streaming_line_count: int = 0
 
     def add_user_message(self, text: str) -> None:
         """Add a user message to the conversation log."""
-        time_str = datetime.now().strftime("%H:%M:%S")
         message = Text()
-        message.append(f"[{time_str}] ", style="dim")
         message.append("You: ", style="bold cyan")
         message.append(text, style="white")
         self.write(message)
 
     def add_system_message(self, text: str, style: str = "yellow") -> None:
         """Add a system message to the conversation log."""
-        time_str = datetime.now().strftime("%H:%M:%S")
         message = Text()
-        message.append(f"[{time_str}] ", style="dim")
         message.append(f"[{text}]", style=style)
         self.write(message)
 
     def start_streaming_response(self) -> None:
         """Start a new streaming assistant response."""
         self._streaming_text = ""
-        self._streaming_start = datetime.now()
+        self._is_streaming = True
         self._streaming_line_count = 0
 
     def _pop_streaming_lines(self) -> None:
@@ -47,15 +41,12 @@ class ConversationLog(RichLog):
 
     def update_streaming_response(self, token: str) -> None:
         """Update the streaming response with a new token."""
-        if self._streaming_start is None:
+        if not self._is_streaming:
             self.start_streaming_response()
 
         self._streaming_text += token
-        assert self._streaming_start is not None
-        time_str = self._streaming_start.strftime("%H:%M:%S")
 
         message = Text()
-        message.append(f"[{time_str}] ", style="dim")
         message.append("Assistant: ", style="bold magenta")
         message.append(self._streaming_text + " \u2588", style="italic white")
 
@@ -66,20 +57,17 @@ class ConversationLog(RichLog):
 
     def finish_streaming_response(self) -> None:
         """Finish the streaming response."""
-        if not self._streaming_text or self._streaming_start is None:
+        if not self._streaming_text or not self._is_streaming:
             return
-
-        time_str = self._streaming_start.strftime("%H:%M:%S")
 
         self._pop_streaming_lines()
 
         message = Text()
-        message.append(f"[{time_str}] ", style="dim")
         message.append("Assistant: ", style="bold magenta")
         message.append(self._streaming_text, style="italic white")
         self.write(message)
 
-        self._streaming_start = None
+        self._is_streaming = False
         self._streaming_text = ""
         self._streaming_line_count = 0
 
