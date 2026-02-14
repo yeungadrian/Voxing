@@ -121,7 +121,7 @@ ModelSelector {
     height: auto;
     max-height: 80%;
     background: #1a1b26;
-    border: solid #414868;
+    border: none;
     padding: 1 2;
 }
 
@@ -185,19 +185,14 @@ RadioButton .toggle--button {
 }
 
 RadioButton:hover {
-    background: #283457;
-}
-
-ToggleButton.-selected {
-    color: #7aa2f7;
-    text-style: bold;
+    background: transparent;
 }
 
 RadioButton.model-loaded .toggle--button {
-    color: #9ece6a;
+    color: #7aa2f7;
 }
 
 RadioButton.model-loaded .toggle--label {
-    color: #9ece6a;
+    color: #7aa2f7;
     text-style: bold;
 }

@@ -13,7 +13,9 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.events import Key
 from textual.reactive import reactive
+from textual.timer import Timer
 from textual.widgets import Footer, Label, TextArea
+from textual.worker import Worker
 
 from vox import audio as audio_mod
 from vox.config import settings
@@ -65,6 +67,9 @@ class VoxApp(App):
         self.is_processing = False
         self.tts_enabled = False
         self.chat_history: list[ChatMessage] = []
+        self._active_worker: Worker[None] | None = None
+        self._esc_pending: bool = False
+        self._esc_timer: Timer | None = None
 
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
@@ -129,7 +134,20 @@ class VoxApp(App):
             status_panel.current_state = new_state
 
     def on_key(self, event: Key) -> None:
-        """Handle Tab key for command autocomplete."""
+        """Handle key events."""
+        if event.key == "escape":
+            if not self.is_processing:
+                return
+            event.prevent_default()
+            event.stop()
+            if self._esc_pending:
+                self._cancel_processing()
+            else:
+                self._esc_pending = True
+                self._show_status("Press ESC again to cancel", timeout=2.0)
+                self._esc_timer = self.set_timer(2.0, self._reset_esc_pending)
+            return
+
         if event.key != "tab":
             return
 
@@ -164,7 +182,7 @@ class VoxApp(App):
             if user_input:
                 text_area.clear()
                 self._hide_command_hints()
-                self.run_worker(self._process_input(user_input))
+                self._active_worker = self.run_worker(self._process_input(user_input))
 
     def _update_command_hints(self, text: str) -> None:
         """Update command hints based on current input."""
@@ -179,8 +197,8 @@ class VoxApp(App):
                 for i, cmd in enumerate(matches):
                     if i > 0:
                         hint_text.append("\n")
-                    hint_text.append(cmd, style="bold #7aa2f7")
-                    hint_text.append(f" {COMMAND_DESCRIPTIONS[cmd]}", style="#565f89")
+                    hint_text.append(cmd, style=f"bold {BLUE}")
+                    hint_text.append(f" {COMMAND_DESCRIPTIONS[cmd]}", style=COMMENT)
                 hint_label.update(hint_text)
                 hint_label.remove_class("hidden")
             else:
@@ -218,7 +236,7 @@ class VoxApp(App):
                 else:
                     conv_log.add_system_message(
                         f"Unknown command: {command}. Available: {', '.join(COMMANDS)}",
-                        style="red",
+                        style=RED,
                     )
             else:
                 conv_log.add_user_message(text)
@@ -227,34 +245,41 @@ class VoxApp(App):
             conv_log.add_error(str(e))
             self.state = AppState.READY
         finally:
+            self._active_worker = None
             self.is_processing = False
 
-    async def _run_llm_pipeline(self, text: str) -> None:
+    async def _run_llm_pipeline(
+        self, text: str, transcribe_time: float | None = None
+    ) -> None:
         """Run LLM generation on text input."""
         conv_log = self.query_one("#conversation-log", ConversationLog)
         metrics_panel = self.query_one("#metrics-panel", MetricsPanel)
 
-        start_time = time.time()
         self.state = AppState.THINKING
 
         llm_start = time.time()
-        ttft: float = 0.0
-        first_token = True
         token_count = 0
         full_response = ""
+        phrase_buffer = ""
+        phrases: list[str] = []
 
         conv_log.start_streaming_response()
 
         async for token in llm_mod.generate_streaming(
             self.models.llm, self.models.tokenizer, text, history=self.chat_history
         ):
-            if first_token:
-                ttft = time.time() - llm_start
-                first_token = False
-
             full_response += token
             conv_log.update_streaming_response(token)
             token_count += 1
+
+            if self.tts_enabled:
+                phrase_buffer += token
+                if "\n" in phrase_buffer:
+                    phrase, phrase_buffer = phrase_buffer.rsplit("\n", 1)
+                    phrases.append(phrase)
+
+        if self.tts_enabled and phrase_buffer.strip():
+            phrases.append(phrase_buffer)
 
         conv_log.finish_streaming_response()
 
@@ -264,22 +289,21 @@ class VoxApp(App):
         llm_time = time.time() - llm_start
         tts_time: float | None = None
 
-        if self.tts_enabled:
+        if self.tts_enabled and phrases:
             self.state = AppState.SYNTHESIZING
             loop = asyncio.get_running_loop()
 
             def on_play() -> None:
                 loop.call_soon_threadsafe(setattr, self, "state", AppState.SPEAKING)
 
-            tts_start = time.time()
-            await tts_mod.speak(self.models.tts, full_response, on_first_chunk=on_play)
-            tts_time = time.time() - tts_start
+            tts_time = await tts_mod.speak_phrases(
+                self.models.tts, phrases, on_first_chunk=on_play
+            )
 
         stats = InteractionStats(
-            ttft=ttft,
+            transcribe_time=transcribe_time,
             llm_time=llm_time,
             tts_time=tts_time,
-            total_time=time.time() - start_time,
             tokens=token_count,
         )
         metrics_panel.update_metrics(stats)
@@ -295,6 +319,26 @@ class VoxApp(App):
         status_panel = self.query_one("#status-panel", StatusPanel)
         status_panel.show_status_message(message)
 
+    def _reset_esc_pending(self) -> None:
+        """Reset the ESC pending state."""
+        self._esc_pending = False
+        self._esc_timer = None
+
+    def _cancel_processing(self) -> None:
+        """Cancel the active processing pipeline."""
+        if self._active_worker is not None:
+            self._active_worker.cancel()
+            self._active_worker = None
+        conv_log = self.query_one("#conversation-log", ConversationLog)
+        conv_log.finish_streaming_response()
+        self.is_processing = False
+        self.state = AppState.READY
+        self._esc_pending = False
+        if self._esc_timer is not None:
+            self._esc_timer.stop()
+            self._esc_timer = None
+        self._show_status("Cancelled")
+
     async def _run_record_pipeline(self) -> None:
         """Record audio, transcribe, then run LLM pipeline."""
         self.state = AppState.RECORDING
@@ -307,7 +351,9 @@ class VoxApp(App):
             return
 
         self.state = AppState.TRANSCRIBING
+        stt_start = time.time()
         transcribed = await stt_mod.transcribe(self.models.stt, audio_data)
+        stt_time = time.time() - stt_start
 
         if not transcribed:
             self.state = AppState.READY
@@ -316,7 +362,7 @@ class VoxApp(App):
 
         conv_log = self.query_one("#conversation-log", ConversationLog)
         conv_log.add_user_message(transcribed)
-        await self._run_llm_pipeline(transcribed)
+        await self._run_llm_pipeline(transcribed, transcribe_time=stt_time)
 
     async def _run_transcribe(self) -> None:
         """Record extended audio and stream transcription."""
@@ -439,7 +485,7 @@ class VoxApp(App):
         self.chat_history.clear()
         conv_log = self.query_one("#conversation-log", ConversationLog)
         conv_log.clear()
-        conv_log.add_system_message(WELCOME_MESSAGE, style="bold cyan")
+        conv_log.add_system_message(WELCOME_MESSAGE, style="#565f89")
 
         metrics_panel = self.query_one("#metrics-panel", MetricsPanel)
         metrics_panel.clear_metrics()

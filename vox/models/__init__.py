@@ -1,8 +1,10 @@
 """Model loading and initialization."""
 
 import contextlib
+import logging
 import os
 import sys
+import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,10 +17,14 @@ from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 from vox.config import settings
 
+for _name in ("mlx", "mlx_lm", "mlx_audio"):
+    logging.getLogger(_name).setLevel(logging.ERROR)
+warnings.filterwarnings("ignore", message=".*deprecated.*")
+
 
 @contextlib.contextmanager
-def _suppress_output() -> Iterator[None]:
-    """Redirect stdout/stderr to devnull and disable tqdm during model loading."""
+def suppress_output() -> Iterator[None]:
+    """Redirect stdout/stderr to devnull."""
     devnull = Path(os.devnull).open("w")  # noqa: SIM115
     old_stdout, old_stderr = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = devnull, devnull
@@ -41,18 +47,18 @@ class Models:
 
 def load_stt(model_name: str | None = None) -> nn.Module:
     """Load the speech-to-text model."""
-    with _suppress_output():
+    with suppress_output():
         return load_stt_model(model_name or settings.stt_model)
 
 
 def load_llm(model_name: str | None = None) -> tuple[nn.Module, TokenizerWrapper]:
     """Load the LLM model and tokenizer."""
-    with _suppress_output():
+    with suppress_output():
         model, tokenizer = load(model_name or settings.llm_model)  # ty:ignore[invalid-assignment]
     return model, tokenizer
 
 
 def load_tts(model_name: str | None = None) -> nn.Module:
     """Load the text-to-speech model."""
-    with _suppress_output():
+    with suppress_output():
         return load_tts_model(model_name or settings.tts_model)  # ty:ignore[invalid-argument-type]

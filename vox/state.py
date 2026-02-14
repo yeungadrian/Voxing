@@ -24,12 +24,9 @@ class AppState(Enum):
 class InteractionStats:
     """Performance metrics for a single interaction."""
 
-    audio_duration: float | None = None
     transcribe_time: float | None = None
-    ttft: float = 0.0
     llm_time: float = 0.0
     tts_time: float | None = None
-    total_time: float = 0.0
     tokens: int = 0
     tokens_per_sec: float = 0.0
 

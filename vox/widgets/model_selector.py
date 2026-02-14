@@ -75,7 +75,7 @@ class ModelSelector(ModalScreen[ModelSelection | None]):
                         classes="model-loaded" if is_current else "",
                     )
 
-    def _get_selected_model(self, radio_set_id: str, models: list[str]) -> str:
+    def _get_selected_model(self, radio_set_id: str, models: tuple[str, ...]) -> str:
         """Return the selected model from a radio set."""
         radio_set = self.query_one(f"#{radio_set_id}", RadioSet)
         index = radio_set.pressed_index
