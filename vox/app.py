@@ -14,8 +14,8 @@ from textual.events import Key
 from textual.reactive import reactive
 from textual.widgets import Footer, Label, TextArea
 
+from vox import audio as audio_mod
 from vox.models import Models, load_llm, load_stt, load_tts
-from vox.models import audio as audio_mod
 from vox.models import llm as llm_mod
 from vox.models import stt as stt_mod
 from vox.models import tts as tts_mod
@@ -103,14 +103,16 @@ class VoxApp(App):
         loop = asyncio.get_running_loop()
         status_panel = self.query_one("#status-panel", StatusPanel)
 
-        status_panel.show_ephemeral_message("Loading STT...")
+        status_panel.show_status_message("Loading STT...")
         stt = await loop.run_in_executor(None, load_stt)
 
-        status_panel.show_ephemeral_message("Loading LLM...")
+        status_panel.show_status_message("Loading LLM...")
         llm, tokenizer = await loop.run_in_executor(None, load_llm)
 
-        status_panel.show_ephemeral_message("Loading TTS...")
+        status_panel.show_status_message("Loading TTS...")
         tts = await loop.run_in_executor(None, load_tts)
+
+        status_panel.clear_status_message()
 
         self.models = Models(stt=stt, llm=llm, tts=tts, tokenizer=tokenizer)
 
@@ -285,24 +287,28 @@ class VoxApp(App):
         status_panel = self.query_one("#status-panel", StatusPanel)
         status_panel.show_ephemeral_message(message, timeout)
 
+    def _show_sticky_status(self, message: str) -> None:
+        """Show a status message that persists until explicitly cleared."""
+        status_panel = self.query_one("#status-panel", StatusPanel)
+        status_panel.show_status_message(message)
+
     async def _run_record_pipeline(self) -> None:
         """Record audio, transcribe, then run LLM pipeline."""
         self.state = AppState.RECORDING
-        self._show_status("Recording... speak now.")
 
         audio_data = await audio_mod.record()
 
         if audio_data is None:
-            self._show_status("No audio detected.")
             self.state = AppState.READY
+            self._show_status("No audio detected.")
             return
 
         self.state = AppState.TRANSCRIBING
         transcribed = await stt_mod.transcribe(self.models.stt, audio_data)
 
         if not transcribed:
-            self._show_status("Could not transcribe audio.")
             self.state = AppState.READY
+            self._show_status("Could not transcribe audio.")
             return
 
         conv_log = self.query_one("#conversation-log", ConversationLog)
@@ -311,43 +317,37 @@ class VoxApp(App):
 
     async def _run_transcribe(self) -> None:
         """Record extended audio and stream transcription."""
-        conv_log = self.query_one("#conversation-log", ConversationLog)
-
         self.state = AppState.RECORDING
-        self._show_status("Transcribe mode: recording up to 3 min...")
+        self._show_sticky_status("Transcribe mode: recording up to 3 min...")
 
         audio_data = await audio_mod.record_long()
 
         if audio_data is None:
-            self._show_status("No audio detected.")
             self.state = AppState.READY
+            self._show_status("No audio detected.")
             return
 
         self.state = AppState.TRANSCRIBING
         full_text = ""
-        conv_log.start_streaming_response()
 
         async for chunk in stt_mod.transcribe_streaming(self.models.stt, audio_data):
             full_text += chunk
-            conv_log.update_streaming_response(chunk)
-
-        conv_log.finish_streaming_response()
-
-        if full_text.strip():
-            self.copy_to_clipboard(full_text.strip())
-            self._show_status("Copied to clipboard.")
-        else:
-            self._show_status("Could not transcribe audio.")
 
         self.state = AppState.READY
+        if full_text.strip():
+            text_area = self.query_one("#user-input", TextArea)
+            text_area.clear()
+            text_area.insert(full_text.strip())
+            self.copy_to_clipboard(full_text.strip())
+            self._show_status("Transcribed to input and copied to clipboard.")
+        else:
+            self._show_status("Could not transcribe audio.")
 
     def _toggle_tts(self) -> None:
         """Toggle TTS on/off."""
         status_panel = self.query_one("#status-panel", StatusPanel)
         self.tts_enabled = not self.tts_enabled
         status_panel.tts_enabled = self.tts_enabled
-        status = "enabled" if self.tts_enabled else "disabled"
-        self._show_status(f"TTS {status}.")
 
     def action_clear_conversation(self) -> None:
         """Clear the conversation history."""

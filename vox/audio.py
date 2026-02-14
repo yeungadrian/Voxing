@@ -1,6 +1,7 @@
-"""Sounddevice audio recorder."""
+"""Audio recording and playback via sounddevice."""
 
 import asyncio
+from collections.abc import Iterable
 from functools import partial
 
 import numpy as np
@@ -12,6 +13,15 @@ from vox.config import settings
 def _rms(audio: np.ndarray) -> float:
     """Calculate root mean square of audio signal."""
     return float(np.sqrt(np.mean(audio**2)))
+
+
+def _normalize_audio(audio: np.ndarray) -> np.ndarray:
+    """Normalize audio to prevent clipping."""
+    audio = audio.flatten().astype(np.float32)
+    max_val = np.abs(audio).max()
+    if max_val > 0:
+        audio = audio / max_val * 0.9
+    return audio.reshape(-1, 1)
 
 
 def _record_blocking(
@@ -56,6 +66,19 @@ def _record_blocking(
     return np.concatenate(audio_chunks, axis=0).flatten()
 
 
+def _play_stream(chunks: Iterable[np.ndarray], sample_rate: int) -> None:
+    """Play an iterable of audio chunks through the speakers."""
+    with sd.OutputStream(
+        samplerate=sample_rate,
+        channels=1,
+        dtype=np.float32,
+        blocksize=4096,
+    ) as stream:
+        for chunk in chunks:
+            audio = np.array(chunk, dtype=np.float32)
+            stream.write(_normalize_audio(audio))
+
+
 async def record() -> np.ndarray | None:
     """Record a short voice command."""
     loop = asyncio.get_running_loop()
@@ -70,3 +93,9 @@ async def record_long() -> np.ndarray | None:
     return await loop.run_in_executor(
         None, partial(_record_blocking, silence_duration=3.0, max_duration=180.0)
     )
+
+
+async def play_stream(chunks: Iterable[np.ndarray], sample_rate: int) -> None:
+    """Play audio chunks asynchronously."""
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, partial(_play_stream, chunks, sample_rate))

@@ -48,12 +48,26 @@ class StatusPanel(Static):
         self._animation_timer: Timer | None = None
         self._ephemeral_timer: Timer | None = None
 
+    def show_status_message(self, message: str) -> None:
+        """Show a status message that persists until explicitly cleared."""
+        if self._ephemeral_timer is not None:
+            self._ephemeral_timer.stop()
+            self._ephemeral_timer = None
+        self.status_message = message
+
     def show_ephemeral_message(self, message: str, timeout: float = 3.0) -> None:
         """Show a temporary status message that auto-clears."""
         if self._ephemeral_timer is not None:
             self._ephemeral_timer.stop()
         self.status_message = message
         self._ephemeral_timer = self.set_timer(timeout, self._clear_ephemeral)
+
+    def clear_status_message(self) -> None:
+        """Clear any active status message."""
+        self.status_message = None
+        if self._ephemeral_timer is not None:
+            self._ephemeral_timer.stop()
+            self._ephemeral_timer = None
 
     def _clear_ephemeral(self) -> None:
         """Clear the ephemeral status message."""
@@ -67,10 +81,6 @@ class StatusPanel(Static):
     def watch_current_state(self, new_state: AppState) -> None:
         """Called when current_state changes."""
         self.last_update = datetime.now()
-        self.status_message = None
-        if self._ephemeral_timer is not None:
-            self._ephemeral_timer.stop()
-            self._ephemeral_timer = None
         if self._animation_timer is not None:
             if new_state == AppState.READY:
                 self._animation_timer.pause()

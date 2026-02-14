@@ -1,13 +1,12 @@
 """Chatterbox text-to-speech wrapper."""
 
-import asyncio
-from functools import partial
+from collections.abc import Iterator
 
 import mlx.nn as nn
 import numpy as np
-import sounddevice as sd
 from langdetect import detect
 
+from vox.audio import play_stream
 from vox.config import settings
 
 SUPPORTED_LANGS = frozenset(
@@ -45,32 +44,15 @@ def _detect_lang(text: str) -> str:
     return detected if detected in SUPPORTED_LANGS else "en"
 
 
-def _normalize_audio(audio: np.ndarray) -> np.ndarray:
-    """Normalize audio to prevent clipping."""
-    audio = audio.flatten().astype(np.float32)
-    max_val = np.abs(audio).max()
-    if max_val > 0:
-        audio = audio / max_val * 0.9
-    return audio.reshape(-1, 1)
-
-
-def _synthesize_and_play(tts_model: nn.Module, text: str) -> None:
-    """Synthesize speech from text and play it back."""
+def _synthesize(tts_model: nn.Module, text: str) -> Iterator[np.ndarray]:
+    """Yield audio chunks from the TTS model."""
     if not text.strip():
         return
     lang_code = _detect_lang(text)
-    with sd.OutputStream(
-        samplerate=settings.tts_sample_rate,
-        channels=1,
-        dtype=np.float32,
-        blocksize=4096,
-    ) as stream:
-        for result in tts_model.generate(text=text, lang_code=lang_code):
-            audio = np.array(result.audio, dtype=np.float32)
-            stream.write(_normalize_audio(audio))
+    for result in tts_model.generate(text=text, lang_code=lang_code):
+        yield np.array(result.audio, dtype=np.float32)
 
 
 async def speak(tts_model: nn.Module, text: str) -> None:
     """Synthesize and play speech asynchronously."""
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, partial(_synthesize_and_play, tts_model, text))
+    await play_stream(_synthesize(tts_model, text), settings.tts_sample_rate)
