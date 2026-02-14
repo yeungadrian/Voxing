@@ -182,14 +182,24 @@ RadioButton {
 
 RadioButton .toggle--button {
     color: #414868;
+    background: transparent;
 }
 
 RadioButton:hover {
     background: transparent;
 }
 
+RadioButton:focus {
+    background: transparent;
+}
+
+RadioButton.-selected {
+    background: transparent;
+}
+
 RadioButton.model-loaded .toggle--button {
     color: #7aa2f7;
+    background: transparent;
 }
 
 RadioButton.model-loaded .toggle--label {
