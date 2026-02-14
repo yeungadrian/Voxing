@@ -7,9 +7,9 @@ import mlx.nn as nn
 from mlx_lm import stream_generate
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-type ChatMessage = dict[str, str]
+from reachy_tui.config import settings
 
-SYSTEM_PROMPT: str = "You are a helpful assistant"
+type ChatMessage = dict[str, str]
 
 
 def _format_prompt(
@@ -18,7 +18,9 @@ def _format_prompt(
     history: list[ChatMessage] | None = None,
 ) -> str:
     """Format user input into a chat prompt with optional history."""
-    messages: list[ChatMessage] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: list[ChatMessage] = [
+        {"role": "system", "content": settings.system_prompt}
+    ]
     if history:
         messages.extend(history)
     messages.append({"role": "user", "content": user_input})
@@ -31,24 +33,28 @@ async def generate_streaming(
     model: nn.Module,
     tokenizer: TokenizerWrapper,
     user_input: str,
-    max_tokens: int = 4096,
+    max_tokens: int = settings.llm_max_tokens,
     history: list[ChatMessage] | None = None,
 ) -> AsyncIterator[str]:
     """Async generator that yields tokens as they are generated."""
     prompt = _format_prompt(tokenizer, user_input, history)
     loop = asyncio.get_running_loop()
-    queue: asyncio.Queue[str | None] = asyncio.Queue()
+    queue: asyncio.Queue[str | Exception | None] = asyncio.Queue()
 
     def _produce() -> None:
         """Run sync stream_generate and push tokens to the queue."""
-        for chunk in stream_generate(
-            model=model,
-            tokenizer=tokenizer,
-            prompt=prompt,
-            max_tokens=max_tokens,
-        ):
-            loop.call_soon_threadsafe(queue.put_nowait, chunk.text)
-        loop.call_soon_threadsafe(queue.put_nowait, None)
+        try:
+            for chunk in stream_generate(
+                model=model,
+                tokenizer=tokenizer,
+                prompt=prompt,
+                max_tokens=max_tokens,
+            ):
+                loop.call_soon_threadsafe(queue.put_nowait, chunk.text)
+        except Exception as exc:
+            loop.call_soon_threadsafe(queue.put_nowait, exc)
+        else:
+            loop.call_soon_threadsafe(queue.put_nowait, None)
 
     loop.run_in_executor(None, _produce)
 
@@ -56,4 +62,6 @@ async def generate_streaming(
         token = await queue.get()
         if token is None:
             break
+        if isinstance(token, Exception):
+            raise token
         yield token

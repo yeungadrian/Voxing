@@ -15,6 +15,8 @@ from mlx_audio.tts.utils import load_model as load_tts_model
 from mlx_lm import load
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
+from reachy_tui.config import settings
+
 logging.getLogger("mlx").setLevel(logging.ERROR)
 logging.getLogger("mlx_audio").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", message=".*deprecated.*")
@@ -48,17 +50,17 @@ class Models:
 def load_stt() -> nn.Module:
     """Load the speech-to-text model."""
     with _suppress_output():
-        return load_stt_model("mlx-community/parakeet-tdt-0.6b-v3")
+        return load_stt_model(settings.stt_model)
 
 
 def load_llm() -> tuple[nn.Module, TokenizerWrapper]:
     """Load the LLM model and tokenizer."""
     with _suppress_output():
-        model, tokenizer = load("LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit")  # ty:ignore[invalid-assignment]
+        model, tokenizer = load(settings.llm_model)  # ty:ignore[invalid-assignment]
     return model, tokenizer
 
 
 def load_tts() -> nn.Module:
     """Load the text-to-speech model."""
     with _suppress_output():
-        return load_tts_model("mlx-community/chatterbox-fp16")  # ty:ignore[invalid-argument-type]
+        return load_tts_model(settings.tts_model)  # ty:ignore[invalid-argument-type]

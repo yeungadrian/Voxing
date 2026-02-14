@@ -8,13 +8,13 @@ import numpy as np
 import sounddevice as sd
 from langdetect import detect
 
+from reachy_tui.config import settings
+
 SUPPORTED_LANGS = frozenset({
     "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi",
     "it", "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv",
     "sw", "tr", "zh",
 })
-
-TTS_SAMPLE_RATE = 24000
 
 
 def _detect_lang(text: str) -> str:
@@ -38,7 +38,7 @@ def _synthesize_and_play(tts_model: nn.Module, text: str) -> None:
         return
     lang_code = _detect_lang(text)
     with sd.OutputStream(
-        samplerate=TTS_SAMPLE_RATE,
+        samplerate=settings.tts_sample_rate,
         channels=1,
         dtype=np.float32,
         blocksize=4096,

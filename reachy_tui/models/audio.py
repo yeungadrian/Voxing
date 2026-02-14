@@ -6,8 +6,7 @@ from functools import partial
 import numpy as np
 import sounddevice as sd
 
-INPUT_SAMPLE_RATE = 16000
-SILENCE_THRESHOLD = 0.01
+from reachy_tui.config import settings
 
 
 def _rms(audio: np.ndarray) -> float:
@@ -21,7 +20,7 @@ def _record_blocking(
 ) -> np.ndarray | None:
     """Record audio until silence is detected."""
     chunk_duration = 0.1
-    chunk_samples = int(INPUT_SAMPLE_RATE * chunk_duration)
+    chunk_samples = int(settings.audio_sample_rate * chunk_duration)
     silence_chunks_needed = int(silence_duration / chunk_duration)
     max_chunks = int(max_duration / chunk_duration)
 
@@ -30,11 +29,11 @@ def _record_blocking(
     recording = False
 
     with sd.InputStream(
-        samplerate=INPUT_SAMPLE_RATE, channels=1, dtype=np.float32
+        samplerate=settings.audio_sample_rate, channels=1, dtype=np.float32
     ) as stream:
         while len(audio_chunks) < max_chunks:
             chunk, _ = stream.read(chunk_samples)
-            has_voice = _rms(chunk) > SILENCE_THRESHOLD
+            has_voice = _rms(chunk) > settings.silence_threshold
 
             if not recording:
                 if has_voice:
