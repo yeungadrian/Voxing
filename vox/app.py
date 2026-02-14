@@ -25,7 +25,7 @@ from vox.models import stt as stt_mod
 from vox.models import tts as tts_mod
 from vox.models.llm import ChatMessage
 from vox.state import AppState, InteractionStats
-from vox.themes import TOKYO_NIGHT
+from vox.themes import PALETTE_1, PALETTE_4, PALETTE_6, PALETTE_8, TOKYO_NIGHT
 from vox.widgets import (
     ConversationLog,
     MetricsPanel,
@@ -50,7 +50,7 @@ WELCOME_MESSAGE = "Welcome to Vox! Type a message, /record, or /transcribe."
 class VoxApp(App):
     """Vox Voice Assistant TUI Application."""
 
-    CSS_PATH = "styles.css"
+    CSS_PATH = "styles.tcss"
     TITLE = "Vox Voice Assistant"
 
     BINDINGS = [
@@ -125,7 +125,7 @@ class VoxApp(App):
         self.state = AppState.READY
 
         conv_log = self.query_one("#conversation-log", ConversationLog)
-        conv_log.add_system_message(WELCOME_MESSAGE, style="bold cyan")
+        conv_log.add_system_message(WELCOME_MESSAGE, style=f"bold {PALETTE_6}")
 
     def watch_state(self, new_state: AppState) -> None:
         """Called when state changes."""
@@ -197,8 +197,8 @@ class VoxApp(App):
                 for i, cmd in enumerate(matches):
                     if i > 0:
                         hint_text.append("\n")
-                    hint_text.append(cmd, style="bold #7aa2f7")
-                    hint_text.append(f" {COMMAND_DESCRIPTIONS[cmd]}", style="#7aa2f7")
+                    hint_text.append(cmd, style=f"bold {PALETTE_4}")
+                    hint_text.append(f" {COMMAND_DESCRIPTIONS[cmd]}", style=PALETTE_4)
                 hint_label.update(hint_text)
                 hint_label.remove_class("hidden")
             else:
@@ -236,7 +236,7 @@ class VoxApp(App):
                 else:
                     conv_log.add_system_message(
                         f"Unknown command: {command}. Available: {', '.join(COMMANDS)}",
-                        style=RED,
+                        style=f"bold {PALETTE_1}",
                     )
             else:
                 conv_log.add_user_message(text)
@@ -485,7 +485,7 @@ class VoxApp(App):
         self.chat_history.clear()
         conv_log = self.query_one("#conversation-log", ConversationLog)
         conv_log.clear()
-        conv_log.add_system_message(WELCOME_MESSAGE, style="#565f89")
+        conv_log.add_system_message(WELCOME_MESSAGE, style=PALETTE_8)
 
         metrics_panel = self.query_one("#metrics-panel", MetricsPanel)
         metrics_panel.clear_metrics()

@@ -4,6 +4,8 @@ from rich.text import Text
 from textual.geometry import Size
 from textual.widgets import RichLog
 
+from vox.themes import FOREGROUND, PALETTE_1, PALETTE_3, PALETTE_5, PALETTE_6
+
 
 class ConversationLog(RichLog):
     """Widget for displaying conversation history with rich formatting."""
@@ -15,11 +17,11 @@ class ConversationLog(RichLog):
     def add_user_message(self, text: str) -> None:
         """Add a user message to the conversation log."""
         message = Text()
-        message.append("You: ", style="bold cyan")
-        message.append(text, style="white")
+        message.append("You: ", style=f"bold {PALETTE_6}")
+        message.append(text, style=FOREGROUND)
         self.write(message)
 
-    def add_system_message(self, text: str, style: str = "yellow") -> None:
+    def add_system_message(self, text: str, style: str = PALETTE_3) -> None:
         """Add a system message to the conversation log."""
         message = Text()
         message.append(f"[{text}]", style=style)
@@ -47,8 +49,8 @@ class ConversationLog(RichLog):
         self._streaming_text += token
 
         message = Text()
-        message.append("Assistant: ", style="bold magenta")
-        message.append(self._streaming_text + " \u2588", style="italic white")
+        message.append("Assistant: ", style=f"bold {PALETTE_5}")
+        message.append(self._streaming_text + " \u2588", style=f"italic {FOREGROUND}")
 
         self._pop_streaming_lines()
         lines_before = len(self.lines)
@@ -63,8 +65,8 @@ class ConversationLog(RichLog):
         self._pop_streaming_lines()
 
         message = Text()
-        message.append("Assistant: ", style="bold magenta")
-        message.append(self._streaming_text, style="italic white")
+        message.append("Assistant: ", style=f"bold {PALETTE_5}")
+        message.append(self._streaming_text, style=f"italic {FOREGROUND}")
         self.write(message)
 
         self._is_streaming = False
@@ -73,4 +75,4 @@ class ConversationLog(RichLog):
 
     def add_error(self, error_text: str) -> None:
         """Add an error message."""
-        self.add_system_message(f"Error: {error_text}", style="bold red")
+        self.add_system_message(f"Error: {error_text}", style=f"bold {PALETTE_1}")

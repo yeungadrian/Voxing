@@ -1,14 +1,30 @@
 /* Vox TUI - Tokyo Night color scheme */
 
-/* Tokyo Night color variables */
+/* Tokyo Night color variables from ColorSystem:
+   $primary: #7aa2f7 (blue)
+   $secondary: #bb9af7 (purple/magenta)
+   $accent: #7dcfff (cyan)
+   $background: #1a1b26
+   $surface: #15161e
+   $panel: #414868
+   $success: #9ece6a (green)
+   $warning: #e0af68 (yellow)
+   $error: #f7768e (red)
+   
+   Additional Tokyo Night colors hardcoded:
+   foreground: #c0caf5
+   text-primary: #a9b1d6
+   text-muted: #414868 (same as $panel)
+   selection-bg: #283457
+*/
+
+/* App-wide */
 * {
-    /* Foreground/text colors */
     color: #c0caf5;
 }
 
-/* App-wide */
 Screen {
-    background: #1a1b26;
+    background: $background;
     color: #c0caf5;
 }
 
@@ -58,7 +74,7 @@ Screen {
 }
 
 #command-hint {
-    color: #565f89;
+    color: $panel;
     background: transparent;
     padding: 0 1;
     height: auto;
@@ -120,14 +136,14 @@ ModelSelector {
     width: 70;
     height: auto;
     max-height: 80%;
-    background: #1a1b26;
+    background: $background;
     border: none;
     padding: 1 2;
 }
 
 #model-tabs {
     height: auto;
-    background: #1a1b26;
+    background: $background;
 }
 
 #model-tabs ContentSwitcher {
@@ -137,29 +153,29 @@ ModelSelector {
 #model-tabs TabPane {
     height: auto;
     padding: 1 1;
-    background: #1a1b26;
+    background: $background;
 }
 
 #model-tabs Tabs {
-    background: #1a1b26;
+    background: $background;
 }
 
 #model-tabs Tab {
-    color: #565f89;
-    background: #1a1b26;
+    color: $panel;
+    background: $background;
 }
 
 #model-tabs Tab.-active {
-    color: #7aa2f7;
+    color: $primary;
     text-style: bold;
 }
 
 #model-tabs Underline .underline--bar {
-    color: #414868;
+    color: $panel;
 }
 
 #model-tabs Underline .underline--highlight {
-    color: #7aa2f7;
+    color: $primary;
 }
 
 RadioSet {
@@ -181,7 +197,7 @@ RadioButton {
 }
 
 RadioButton .toggle--button {
-    color: #414868;
+    color: $panel;
     background: transparent;
 }
 
@@ -198,11 +214,11 @@ RadioButton.-selected {
 }
 
 RadioButton.model-loaded .toggle--button {
-    color: #7aa2f7;
+    color: $primary;
     background: transparent;
 }
 
 RadioButton.model-loaded .toggle--label {
-    color: #7aa2f7;
+    color: $primary;
     text-style: bold;
 }

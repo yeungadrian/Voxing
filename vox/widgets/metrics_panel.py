@@ -4,6 +4,7 @@ from rich.text import Text
 from textual.widgets import Static
 
 from vox.state import InteractionStats
+from vox.themes import PALETTE_4
 
 
 class MetricsPanel(Static):
@@ -27,17 +28,17 @@ class MetricsPanel(Static):
 
         if stats.transcribe_time is not None:
             content.append("STT: ", style="dim")
-            content.append(f"{stats.transcribe_time:.2f}s", style="#7aa2f7")
+            content.append(f"{stats.transcribe_time:.2f}s", style=PALETTE_4)
             content.append("  ")
 
         content.append("LLM: ", style="dim")
-        content.append(f"{stats.llm_time:.1f}s", style="#7aa2f7")
+        content.append(f"{stats.llm_time:.1f}s", style=PALETTE_4)
         content.append("  Tokens: ", style="dim")
-        content.append(f"{stats.tokens_per_sec:.0f}/s", style="#7aa2f7")
+        content.append(f"{stats.tokens_per_sec:.0f}/s", style=PALETTE_4)
 
         if stats.tts_time is not None:
             content.append("  TTS: ", style="dim")
-            content.append(f"{stats.tts_time:.2f}s", style="#7aa2f7")
+            content.append(f"{stats.tts_time:.2f}s", style=PALETTE_4)
 
         self.update(content)
 

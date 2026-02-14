@@ -6,6 +6,7 @@ from textual.timer import Timer
 from textual.widgets import Static
 
 from vox.state import AppState
+from vox.themes import FOREGROUND, PALETTE_2, PALETTE_3, PALETTE_5, PALETTE_6
 
 
 class StatusPanel(Static):
@@ -75,10 +76,10 @@ class StatusPanel(Static):
         content.append(str(self.current_state), style=self._get_state_color())
 
         if self.status_message:
-            content.append(f"  •  {self.status_message}", style="dim yellow")
+            content.append(f"  •  {self.status_message}", style=f"dim {PALETTE_3}")
 
         tts_label = "TTS:ON" if self.tts_enabled else "TTS:OFF"
-        tts_style = "magenta" if self.tts_enabled else "dim"
+        tts_style = PALETTE_5 if self.tts_enabled else "dim"
         content.append(f"  •  {tts_label}", style=tts_style)
 
         self.update(content)
@@ -91,15 +92,15 @@ class StatusPanel(Static):
     def _get_state_color(self) -> str:
         """Get the color for the current state."""
         color_map = {
-            AppState.LOADING: "yellow",
-            AppState.READY: "green",
-            AppState.RECORDING: "yellow",
-            AppState.TRANSCRIBING: "cyan",
-            AppState.THINKING: "yellow",
-            AppState.SYNTHESIZING: "cyan",
-            AppState.SPEAKING: "magenta",
+            AppState.LOADING: PALETTE_3,  # #e0af68 (yellow)
+            AppState.READY: PALETTE_2,  # #9ece6a (green)
+            AppState.RECORDING: PALETTE_3,  # #e0af68 (yellow)
+            AppState.TRANSCRIBING: PALETTE_6,  # #7dcfff (cyan)
+            AppState.THINKING: PALETTE_3,  # #e0af68 (yellow)
+            AppState.SYNTHESIZING: PALETTE_6,  # #7dcfff (cyan)
+            AppState.SPEAKING: PALETTE_5,  # #bb9af7 (magenta)
         }
-        return color_map.get(self.current_state, "white")
+        return color_map.get(self.current_state, FOREGROUND)
 
     def on_mount(self) -> None:
         """Called when widget is mounted."""
