@@ -17,15 +17,16 @@ class AppState(Enum):
         """Return human-readable state name."""
         return self.value.capitalize()
 
-    @property
-    def emoji(self) -> str:
-        """Return emoji representing the state."""
-        return {
-            AppState.STANDBY: "💤",
-            AppState.AWAKE: "👂",
-            AppState.PROCESSING: "🤔",
-            AppState.SPEAKING: "💬",
-        }[self]
+
+class InputMode(Enum):
+    """Input mode for user interaction."""
+
+    TEXT = "text"
+    AUDIO = "audio"
+
+    def __str__(self) -> str:
+        """Return human-readable mode name."""
+        return self.value.capitalize()
 
 
 @dataclass
@@ -53,11 +54,11 @@ class ConversationMessage:
 class InteractionStats:
     """Performance metrics for a single interaction."""
 
-    audio_duration: float = 0.0  # Simulated recording duration (seconds)
-    transcribe_time: float = 0.0  # STT processing time (seconds)
+    audio_duration: float | None = None  # None in text mode
+    transcribe_time: float | None = None  # None in text mode
     ttft: float = 0.0  # Time to first token from LLM (seconds)
     llm_time: float = 0.0  # Total LLM generation time (seconds)
-    tts_time: float = 0.0  # TTS generation + playback time (seconds)
+    tts_time: float | None = None  # None when TTS disabled
     total_time: float = 0.0  # End-to-end latency (seconds)
     tokens: int = 0  # Number of tokens generated
     tokens_per_sec: float = 0.0  # Generation speed
@@ -68,23 +69,25 @@ class InteractionStats:
             self.tokens_per_sec = self.tokens / self.llm_time
         if self.total_time == 0.0:
             self.total_time = (
-                self.audio_duration
-                + self.transcribe_time
+                (self.audio_duration or 0.0)
+                + (self.transcribe_time or 0.0)
                 + self.llm_time
-                + self.tts_time
+                + (self.tts_time or 0.0)
             )
 
     def format_summary(self) -> str:
         """Return formatted summary string."""
-        lines = [
-            f"Audio: {self.audio_duration:.2f}s",
-            f"Transcribe: {self.transcribe_time:.2f}s",
-            f"TTFT: {self.ttft:.2f}s",
-            (
-                f"LLM: {self.llm_time:.2f}s "
-                f"({self.tokens} tokens @ {self.tokens_per_sec:.1f}t/s)"
-            ),
-            f"TTS: {self.tts_time:.2f}s",
-            f"Total: {self.total_time:.2f}s",
-        ]
+        lines = []
+        if self.audio_duration is not None:
+            lines.append(f"Audio: {self.audio_duration:.2f}s")
+        if self.transcribe_time is not None:
+            lines.append(f"Transcribe: {self.transcribe_time:.2f}s")
+        lines.append(f"TTFT: {self.ttft:.2f}s")
+        lines.append(
+            f"LLM: {self.llm_time:.2f}s "
+            f"({self.tokens} tokens @ {self.tokens_per_sec:.1f}t/s)"
+        )
+        if self.tts_time is not None:
+            lines.append(f"TTS: {self.tts_time:.2f}s")
+        lines.append(f"Total: {self.total_time:.2f}s")
         return "\n".join(lines)
