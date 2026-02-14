@@ -1,5 +1,7 @@
 """Metrics panel widget for displaying performance statistics."""
 
+from typing import Any
+
 from rich.text import Text
 from textual.widgets import Static
 
@@ -11,9 +13,9 @@ class MetricsPanel(Static):
 
     DEFAULT_CLASSES = "metrics-panel"
 
-    def __init__(self, *args: object, **kwargs: object) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize the metrics panel."""
-        super().__init__(*args, **kwargs)  # ty: ignore[invalid-argument-type]
+        super().__init__(*args, **kwargs)
         self.current_stats: InteractionStats | None = None
         self.update_display()
 

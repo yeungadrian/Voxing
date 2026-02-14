@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 
 import mlx.nn as nn
 from mlx_lm import stream_generate
+from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 from reachy_tui.config import settings
@@ -43,12 +44,16 @@ async def generate_streaming(
 
     def _produce() -> None:
         """Run sync stream_generate and push tokens to the queue."""
+        sampler = make_sampler(temp=0.1, top_k=50, top_p=0.1)
+        logits_processors = make_logits_processors(repetition_penalty=1.05)
         try:
             for chunk in stream_generate(
                 model=model,
                 tokenizer=tokenizer,
                 prompt=prompt,
                 max_tokens=max_tokens,
+                sampler=sampler,
+                logits_processors=logits_processors,
             ):
                 loop.call_soon_threadsafe(queue.put_nowait, chunk.text)
         except Exception as exc:
