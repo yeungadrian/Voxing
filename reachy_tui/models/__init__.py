@@ -1,8 +1,13 @@
 """Model loading and initialization."""
 
+import contextlib
 import logging
+import os
+import sys
 import warnings
+from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import Path
 
 import mlx.nn as nn
 from mlx_audio.stt import load_model as load_stt_model
@@ -15,6 +20,21 @@ logging.getLogger("mlx_audio").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", message=".*deprecated.*")
 
 
+@contextlib.contextmanager
+def _suppress_output() -> Iterator[None]:
+    """Redirect stdout/stderr to devnull and disable tqdm during model loading."""
+    os.environ["TQDM_DISABLE"] = "1"
+    devnull = Path(os.devnull).open("w")  # noqa: SIM115
+    old_stdout, old_stderr = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = devnull, devnull
+    try:
+        yield
+    finally:
+        sys.stdout, sys.stderr = old_stdout, old_stderr
+        devnull.close()
+        os.environ.pop("TQDM_DISABLE", None)
+
+
 @dataclass(slots=True)
 class Models:
     """Container for all loaded models."""
@@ -25,10 +45,20 @@ class Models:
     tokenizer: TokenizerWrapper
 
 
-def load_models() -> Models:
-    """Load and warm up all models."""
-    stt_model = load_stt_model("mlx-community/parakeet-tdt-0.6b-v3")
-    llm_model, tokenizer = load("LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit")  # ty:ignore[invalid-assignment]
-    tts_model = load_tts_model("mlx-community/Kokoro-82M-bf16")  # ty:ignore[invalid-argument-type]
+def load_stt() -> nn.Module:
+    """Load the speech-to-text model."""
+    with _suppress_output():
+        return load_stt_model("mlx-community/parakeet-tdt-0.6b-v3")
 
-    return Models(stt=stt_model, llm=llm_model, tts=tts_model, tokenizer=tokenizer)
+
+def load_llm() -> tuple[nn.Module, TokenizerWrapper]:
+    """Load the LLM model and tokenizer."""
+    with _suppress_output():
+        model, tokenizer = load("LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit")  # ty:ignore[invalid-assignment]
+    return model, tokenizer
+
+
+def load_tts() -> nn.Module:
+    """Load the text-to-speech model."""
+    with _suppress_output():
+        return load_tts_model("mlx-community/chatterbox-fp16")  # ty:ignore[invalid-argument-type]

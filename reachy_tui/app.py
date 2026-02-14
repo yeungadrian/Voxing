@@ -1,5 +1,6 @@
 """Main Reachy TUI application."""
 
+import asyncio
 import contextlib
 import time
 
@@ -8,11 +9,12 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.events import Key
 from textual.reactive import reactive
 from textual.widgets import Footer, Label, TextArea
 
-from reachy_tui.models import Models
+from reachy_tui.models import Models, load_llm, load_stt, load_tts
 from reachy_tui.models import audio as audio_mod
 from reachy_tui.models import llm as llm_mod
 from reachy_tui.models import stt as stt_mod
@@ -55,15 +57,16 @@ class ReachyTuiApp(App):
         Binding("ctrl+c", "clear_conversation", "Clear"),
     ]
 
-    state: reactive[AppState] = reactive(AppState.READY)
+    state: reactive[AppState] = reactive(AppState.LOADING)
     current_metrics: reactive[InteractionStats | None] = reactive(None)
 
-    def __init__(self, models: Models) -> None:
+    def __init__(self) -> None:
         """Initialize the Reachy TUI app."""
         super().__init__()
-        self.models = models
+        self.models: Models = None
         self.is_processing = False
         self.tts_enabled = False
+        self.chat_history: list[dict[str, str]] = []
 
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
@@ -87,21 +90,43 @@ class ReachyTuiApp(App):
         text_area = self.query_one("#user-input", TextArea)
         text_area.focus()
         text_area.show_line_numbers = False
-
-        conv_log = self.query_one("#conversation-log", ConversationLog)
-        conv_log.add_system_message(WELCOME_MESSAGE, style="bold cyan")
+        text_area.disabled = True
 
         status_panel = self.query_one("#status-panel", StatusPanel)
         status_panel.current_state = self.state
         status_panel.tts_enabled = self.tts_enabled
 
+        self.run_worker(self._load_models())
+
+    async def _load_models(self) -> None:
+        """Load all models in the background."""
+        loop = asyncio.get_running_loop()
+        status_panel = self.query_one("#status-panel", StatusPanel)
+
+        status_panel.show_ephemeral_message("Loading STT...")
+        stt = await loop.run_in_executor(None, load_stt)
+
+        status_panel.show_ephemeral_message("Loading LLM...")
+        llm, tokenizer = await loop.run_in_executor(None, load_llm)
+
+        status_panel.show_ephemeral_message("Loading TTS...")
+        tts = await loop.run_in_executor(None, load_tts)
+
+        self.models = Models(stt=stt, llm=llm, tts=tts, tokenizer=tokenizer)
+
+        text_area = self.query_one("#user-input", TextArea)
+        text_area.disabled = False
+        text_area.focus()
+        self.state = AppState.READY
+
+        conv_log = self.query_one("#conversation-log", ConversationLog)
+        conv_log.add_system_message(WELCOME_MESSAGE, style="bold cyan")
+
     def watch_state(self, new_state: AppState) -> None:
         """Called when state changes."""
-        try:
+        with contextlib.suppress(NoMatches):
             status_panel = self.query_one("#status-panel", StatusPanel)
             status_panel.current_state = new_state
-        except Exception:
-            pass
 
     def on_key(self, event: Key) -> None:
         """Handle Tab key for command autocomplete."""
@@ -173,6 +198,8 @@ class ReachyTuiApp(App):
 
     async def _process_input(self, text: str) -> None:
         """Route user input to the appropriate handler."""
+        if self.state == AppState.LOADING:
+            return
         self.is_processing = True
         conv_log = self.query_one("#conversation-log", ConversationLog)
 
@@ -222,7 +249,7 @@ class ReachyTuiApp(App):
         conv_log.start_streaming_response()
 
         async for token in llm_mod.generate_streaming(
-            self.models.llm, self.models.tokenizer, text
+            self.models.llm, self.models.tokenizer, text, history=self.chat_history
         ):
             if first_token:
                 stats.ttft = time.time() - llm_start
@@ -233,6 +260,9 @@ class ReachyTuiApp(App):
             token_count += 1
 
         conv_log.finish_streaming_response()
+
+        self.chat_history.append({"role": "user", "content": text})
+        self.chat_history.append({"role": "assistant", "content": full_response})
 
         stats.llm_time = time.time() - llm_start
         stats.tokens = token_count
@@ -251,17 +281,20 @@ class ReachyTuiApp(App):
         metrics_panel.update_metrics(stats)
         self.state = AppState.READY
 
+    def _show_status(self, message: str, timeout: float = 3.0) -> None:
+        """Show an ephemeral message in the status bar."""
+        status_panel = self.query_one("#status-panel", StatusPanel)
+        status_panel.show_ephemeral_message(message, timeout)
+
     async def _run_record_pipeline(self) -> None:
         """Record audio, transcribe, then run LLM pipeline."""
-        conv_log = self.query_one("#conversation-log", ConversationLog)
-
         self.state = AppState.RECORDING
-        conv_log.add_system_message("Recording... speak now.", style="yellow")
+        self._show_status("Recording... speak now.")
 
         audio_data = await audio_mod.record()
 
         if audio_data is None:
-            conv_log.add_system_message("No audio detected.", style="dim yellow")
+            self._show_status("No audio detected.")
             self.state = AppState.READY
             return
 
@@ -269,12 +302,11 @@ class ReachyTuiApp(App):
         transcribed = await stt_mod.transcribe(self.models.stt, audio_data)
 
         if not transcribed:
-            conv_log.add_system_message(
-                "Could not transcribe audio.", style="dim yellow"
-            )
+            self._show_status("Could not transcribe audio.")
             self.state = AppState.READY
             return
 
+        conv_log = self.query_one("#conversation-log", ConversationLog)
         conv_log.add_user_message(transcribed)
         await self._run_llm_pipeline(transcribed)
 
@@ -283,15 +315,12 @@ class ReachyTuiApp(App):
         conv_log = self.query_one("#conversation-log", ConversationLog)
 
         self.state = AppState.RECORDING
-        conv_log.add_system_message(
-            "Transcribe mode: recording up to 3 min (3s silence to stop)...",
-            style="yellow",
-        )
+        self._show_status("Transcribe mode: recording up to 3 min...")
 
         audio_data = await audio_mod.record_long()
 
         if audio_data is None:
-            conv_log.add_system_message("No audio detected.", style="dim yellow")
+            self._show_status("No audio detected.")
             self.state = AppState.READY
             return
 
@@ -307,25 +336,23 @@ class ReachyTuiApp(App):
 
         if full_text.strip():
             self.copy_to_clipboard(full_text.strip())
-            conv_log.add_system_message("Copied to clipboard.", style="dim")
+            self._show_status("Copied to clipboard.")
         else:
-            conv_log.add_system_message(
-                "Could not transcribe audio.", style="dim yellow"
-            )
+            self._show_status("Could not transcribe audio.")
 
         self.state = AppState.READY
 
     def _toggle_tts(self) -> None:
         """Toggle TTS on/off."""
-        conv_log = self.query_one("#conversation-log", ConversationLog)
         status_panel = self.query_one("#status-panel", StatusPanel)
         self.tts_enabled = not self.tts_enabled
         status_panel.tts_enabled = self.tts_enabled
         status = "enabled" if self.tts_enabled else "disabled"
-        conv_log.add_system_message(f"TTS {status}.", style="cyan")
+        self._show_status(f"TTS {status}.")
 
     def action_clear_conversation(self) -> None:
         """Clear the conversation history."""
+        self.chat_history.clear()
         conv_log = self.query_one("#conversation-log", ConversationLog)
         conv_log.clear()
         conv_log.add_system_message(WELCOME_MESSAGE, style="bold cyan")

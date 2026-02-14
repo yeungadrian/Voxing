@@ -7,18 +7,21 @@ import mlx.nn as nn
 from mlx_lm import stream_generate
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
+type ChatMessage = dict[str, str]
 
-def _format_prompt(tokenizer: TokenizerWrapper, user_input: str) -> str:
-    """Format user input into a chat prompt."""
-    messages = [
-        {
-            "role": "system",
-            "content": "You are a voice assistant. "
-            "All of your responses will be output via tts "
-            "so keep use of punctuation minimal.",
-        },
-        {"role": "user", "content": user_input},
-    ]
+SYSTEM_PROMPT: str = "You are a helpful assistant"
+
+
+def _format_prompt(
+    tokenizer: TokenizerWrapper,
+    user_input: str,
+    history: list[ChatMessage] | None = None,
+) -> str:
+    """Format user input into a chat prompt with optional history."""
+    messages: list[ChatMessage] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": user_input})
     return tokenizer.apply_chat_template(
         messages, add_generation_prompt=True, tokenize=False
     )
@@ -28,10 +31,11 @@ async def generate_streaming(
     model: nn.Module,
     tokenizer: TokenizerWrapper,
     user_input: str,
-    max_tokens: int = 512,
+    max_tokens: int = 4096,
+    history: list[ChatMessage] | None = None,
 ) -> AsyncIterator[str]:
     """Async generator that yields tokens as they are generated."""
-    prompt = _format_prompt(tokenizer, user_input)
+    prompt = _format_prompt(tokenizer, user_input, history)
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[str | None] = asyncio.Queue()
 

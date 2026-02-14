@@ -1,4 +1,4 @@
-"""Kokoro text-to-speech wrapper."""
+"""Chatterbox text-to-speech wrapper."""
 
 import asyncio
 from functools import partial
@@ -8,19 +8,19 @@ import numpy as np
 import sounddevice as sd
 from langdetect import detect
 
-KOKORO_VOICES: dict[str, tuple[str, str]] = {
-    "en": ("af_heart", "a"),
-    "es": ("ef_dora", "e"),
-    "fr": ("ff_siwis", "f"),
-    "hi": ("hf_alpha", "h"),
-    "it": ("if_sara", "i"),
-    "ja": ("jf_alpha", "j"),
-    "pt": ("pf_dora", "p"),
-    "zh-cn": ("zf_xiaobei", "z"),
-    "zh-tw": ("zf_xiaobei", "z"),
-}
+SUPPORTED_LANGS = frozenset({
+    "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi",
+    "it", "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv",
+    "sw", "tr", "zh",
+})
 
 TTS_SAMPLE_RATE = 24000
+
+
+def _detect_lang(text: str) -> str:
+    """Detect language, falling back to English if unsupported."""
+    detected = detect(text)
+    return detected if detected in SUPPORTED_LANGS else "en"
 
 
 def _normalize_audio(audio: np.ndarray) -> np.ndarray:
@@ -36,17 +36,14 @@ def _synthesize_and_play(tts_model: nn.Module, text: str) -> None:
     """Synthesize speech from text and play it back."""
     if not text.strip():
         return
-    detected_lang = detect(text)
-    voice, lang_code = KOKORO_VOICES.get(detected_lang, ("af_heart", "a"))
+    lang_code = _detect_lang(text)
     with sd.OutputStream(
         samplerate=TTS_SAMPLE_RATE,
         channels=1,
         dtype=np.float32,
         blocksize=4096,
     ) as stream:
-        for result in tts_model.generate(
-            text=text, voice=voice, lang_code=lang_code, speed=1.0
-        ):
+        for result in tts_model.generate(text=text, lang_code=lang_code):
             audio = np.array(result.audio, dtype=np.float32)
             stream.write(_normalize_audio(audio))
 

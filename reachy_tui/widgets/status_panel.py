@@ -16,8 +16,9 @@ class StatusPanel(Static):
     DEFAULT_CLASSES = "status-panel"
     SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-    current_state: reactive[AppState] = reactive(AppState.READY)
+    current_state: reactive[AppState] = reactive(AppState.LOADING)
     tts_enabled: reactive[bool] = reactive(False)
+    status_message: reactive[str | None] = reactive(None)
     last_update: reactive[datetime] = reactive(datetime.now())
     _frame_index: int = 0
 
@@ -25,10 +26,32 @@ class StatusPanel(Static):
         """Initialize the status panel."""
         super().__init__(*args, **kwargs)  # ty: ignore[invalid-argument-type]
         self._animation_timer: Timer | None = None
+        self._ephemeral_timer: Timer | None = None
+
+    def show_ephemeral_message(self, message: str, timeout: float = 3.0) -> None:
+        """Show a temporary status message that auto-clears."""
+        if self._ephemeral_timer is not None:
+            self._ephemeral_timer.stop()
+        self.status_message = message
+        self._ephemeral_timer = self.set_timer(timeout, self._clear_ephemeral)
+
+    def _clear_ephemeral(self) -> None:
+        """Clear the ephemeral status message."""
+        self.status_message = None
+        self._ephemeral_timer = None
+
+    def watch_status_message(self) -> None:
+        """Called when status_message changes."""
+        self.update_display()
 
     def watch_current_state(self, new_state: AppState) -> None:
         """Called when current_state changes."""
         self.last_update = datetime.now()
+        if new_state != AppState.READY:
+            self.status_message = None
+            if self._ephemeral_timer is not None:
+                self._ephemeral_timer.stop()
+                self._ephemeral_timer = None
         if self._animation_timer is not None:
             if new_state == AppState.READY:
                 self._animation_timer.pause()
@@ -51,6 +74,9 @@ class StatusPanel(Static):
             content.append(f"{spinner} ", style=self._get_state_color())
         content.append(str(self.current_state), style=self._get_state_color())
 
+        if self.status_message:
+            content.append(f"  •  {self.status_message}", style="dim yellow")
+
         tts_label = "TTS:ON" if self.tts_enabled else "TTS:OFF"
         tts_style = "magenta" if self.tts_enabled else "dim"
         content.append(f"  •  {tts_label}", style=tts_style)
@@ -68,6 +94,7 @@ class StatusPanel(Static):
     def _get_state_color(self) -> str:
         """Get the color for the current state."""
         color_map = {
+            AppState.LOADING: "yellow",
             AppState.READY: "green",
             AppState.RECORDING: "yellow",
             AppState.TRANSCRIBING: "cyan",
@@ -79,6 +106,7 @@ class StatusPanel(Static):
     def on_mount(self) -> None:
         """Called when widget is mounted."""
         self.update_display()
+        pause = self.current_state == AppState.READY
         self._animation_timer = self.set_interval(
-            0.1, self._advance_animation, pause=True
+            0.1, self._advance_animation, pause=pause
         )

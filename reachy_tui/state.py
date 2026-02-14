@@ -7,6 +7,7 @@ from enum import Enum
 class AppState(Enum):
     """Application state machine states."""
 
+    LOADING = "loading"
     READY = "ready"
     RECORDING = "recording"
     TRANSCRIBING = "transcribing"

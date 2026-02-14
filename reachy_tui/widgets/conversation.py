@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from rich.text import Text
+from textual.geometry import Size
 from textual.widgets import RichLog
 
 
@@ -56,6 +57,7 @@ class ConversationLog(RichLog):
             if self.lines:
                 self.lines.pop()
         self._line_cache.clear()
+        self.virtual_size = Size(self.virtual_size.width, len(self.lines))
 
     def update_streaming_response(self, token: str) -> None:
         """Update the streaming response with a new token."""
