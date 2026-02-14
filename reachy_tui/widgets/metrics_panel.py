@@ -11,18 +11,14 @@ class MetricsPanel(Static):
 
     DEFAULT_CLASSES = "metrics-panel"
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: object, **kwargs: object) -> None:
         """Initialize the metrics panel."""
-        super().__init__(*args, **kwargs)
-        self.current_stats = None
+        super().__init__(*args, **kwargs)  # ty: ignore[invalid-argument-type]
+        self.current_stats: InteractionStats | None = None
         self.update_display()
 
     def update_metrics(self, stats: InteractionStats) -> None:
-        """Update the displayed metrics.
-
-        Args:
-            stats: New performance statistics.
-        """
+        """Update the displayed metrics."""
         self.current_stats = stats
         self.update_display()
 

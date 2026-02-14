@@ -4,6 +4,7 @@ from datetime import datetime
 
 from rich.text import Text
 from textual.reactive import reactive
+from textual.timer import Timer
 from textual.widgets import Static
 
 from reachy_tui.state import AppState
@@ -23,11 +24,16 @@ class StatusPanel(Static):
     def __init__(self, *args: object, **kwargs: object) -> None:
         """Initialize the status panel."""
         super().__init__(*args, **kwargs)  # ty: ignore[invalid-argument-type]
-        self._animation_timer = None
+        self._animation_timer: Timer | None = None
 
     def watch_current_state(self, new_state: AppState) -> None:
         """Called when current_state changes."""
         self.last_update = datetime.now()
+        if self._animation_timer is not None:
+            if new_state == AppState.READY:
+                self._animation_timer.pause()
+            else:
+                self._animation_timer.resume()
         self.update_display()
 
     def watch_tts_enabled(self, new_value: bool) -> None:
@@ -38,8 +44,11 @@ class StatusPanel(Static):
         """Update the panel display with current state."""
         content = Text()
 
-        spinner = self.SPINNER_FRAMES[self._frame_index]
-        content.append(f"{spinner} ", style=self._get_state_color())
+        if self.current_state == AppState.READY:
+            content.append("● ", style=self._get_state_color())
+        else:
+            spinner = self.SPINNER_FRAMES[self._frame_index]
+            content.append(f"{spinner} ", style=self._get_state_color())
         content.append(str(self.current_state), style=self._get_state_color())
 
         tts_label = "TTS:ON" if self.tts_enabled else "TTS:OFF"
@@ -70,4 +79,6 @@ class StatusPanel(Static):
     def on_mount(self) -> None:
         """Called when widget is mounted."""
         self.update_display()
-        self._animation_timer = self.set_interval(0.1, self._advance_animation)
+        self._animation_timer = self.set_interval(
+            0.1, self._advance_animation, pause=True
+        )

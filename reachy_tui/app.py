@@ -1,11 +1,14 @@
 """Main Reachy TUI application."""
 
+import contextlib
 import time
 
+from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
+from textual.events import Key
 from textual.reactive import reactive
 from textual.widgets import Footer, Label, TextArea
 
@@ -18,7 +21,27 @@ from reachy_tui.state import AppState, InteractionStats
 from reachy_tui.themes import TOKYO_NIGHT
 from reachy_tui.widgets import ConversationLog, MetricsPanel, StatusPanel
 
-COMMANDS = ["/record", "/transcribe", "/tts", "/clear", "/exit"]
+COMMAND_DESCRIPTIONS: dict[str, str] = {
+    "/record": "Record and process voice",
+    "/transcribe": "Transcribe audio to text",
+    "/tts": "Toggle text-to-speech",
+    "/clear": "Clear conversation",
+    "/exit": "Exit application",
+}
+COMMANDS = list(COMMAND_DESCRIPTIONS)
+
+WELCOME_MESSAGE = "Welcome to Reachy! Type a message, /record, or /transcribe."
+
+
+def _longest_common_prefix(strings: list[str]) -> str:
+    """Return the longest common prefix of a list of strings."""
+    if not strings:
+        return ""
+    prefix = strings[0]
+    for s in strings[1:]:
+        while not s.startswith(prefix):
+            prefix = prefix[:-1]
+    return prefix
 
 
 class ReachyTuiApp(App):
@@ -66,10 +89,7 @@ class ReachyTuiApp(App):
         text_area.show_line_numbers = False
 
         conv_log = self.query_one("#conversation-log", ConversationLog)
-        conv_log.add_system_message(
-            "Welcome to Reachy! Type a message, /record, or /transcribe.",
-            style="bold cyan",
-        )
+        conv_log.add_system_message(WELCOME_MESSAGE, style="bold cyan")
 
         status_panel = self.query_one("#status-panel", StatusPanel)
         status_panel.current_state = self.state
@@ -82,6 +102,32 @@ class ReachyTuiApp(App):
             status_panel.current_state = new_state
         except Exception:
             pass
+
+    def on_key(self, event: Key) -> None:
+        """Handle Tab key for command autocomplete."""
+        if event.key != "tab":
+            return
+
+        text_area = self.query_one("#user-input", TextArea)
+        text = text_area.text.strip()
+
+        if not text.startswith("/"):
+            return
+
+        matches = [cmd for cmd in COMMANDS if cmd.startswith(text.lower())]
+        if not matches:
+            return
+
+        event.prevent_default()
+        event.stop()
+
+        if len(matches) == 1:
+            replacement = matches[0]
+        else:
+            replacement = _longest_common_prefix(matches)
+
+        text_area.clear()
+        text_area.insert(replacement)
 
     @on(TextArea.Changed)
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
@@ -107,7 +153,13 @@ class ReachyTuiApp(App):
             matches = [cmd for cmd in COMMANDS if cmd.startswith(typed)]
 
             if matches:
-                hint_label.update("  ".join(matches))
+                hint_text = Text()
+                for i, cmd in enumerate(matches):
+                    if i > 0:
+                        hint_text.append("\n")
+                    hint_text.append(cmd, style="bold #7aa2f7")
+                    hint_text.append(f" {COMMAND_DESCRIPTIONS[cmd]}", style="#565f89")
+                hint_label.update(hint_text)
                 hint_label.remove_class("hidden")
             else:
                 self._hide_command_hints()
@@ -116,8 +168,6 @@ class ReachyTuiApp(App):
 
     def _hide_command_hints(self) -> None:
         """Hide command hints."""
-        import contextlib
-
         with contextlib.suppress(Exception):
             self.query_one("#command-hint", Label).add_class("hidden")
 
@@ -229,7 +279,7 @@ class ReachyTuiApp(App):
         await self._run_llm_pipeline(transcribed)
 
     async def _run_transcribe(self) -> None:
-        """Record extended audio and display transcription only."""
+        """Record extended audio and stream transcription."""
         conv_log = self.query_one("#conversation-log", ConversationLog)
 
         self.state = AppState.RECORDING
@@ -246,18 +296,22 @@ class ReachyTuiApp(App):
             return
 
         self.state = AppState.TRANSCRIBING
-        transcribed = await stt_mod.transcribe(self.models.stt, audio_data)
+        full_text = ""
+        conv_log.start_streaming_response()
 
-        if not transcribed:
+        async for chunk in stt_mod.transcribe_streaming(self.models.stt, audio_data):
+            full_text += chunk
+            conv_log.update_streaming_response(chunk)
+
+        conv_log.finish_streaming_response()
+
+        if full_text.strip():
+            self.copy_to_clipboard(full_text.strip())
+            conv_log.add_system_message("Copied to clipboard.", style="dim")
+        else:
             conv_log.add_system_message(
                 "Could not transcribe audio.", style="dim yellow"
             )
-        else:
-            conv_log.add_system_message(
-                f"Transcription: {transcribed}", style="cyan"
-            )
-            self.copy_to_clipboard(transcribed)
-            conv_log.add_system_message("Copied to clipboard.", style="dim")
 
         self.state = AppState.READY
 
@@ -274,7 +328,7 @@ class ReachyTuiApp(App):
         """Clear the conversation history."""
         conv_log = self.query_one("#conversation-log", ConversationLog)
         conv_log.clear()
-        conv_log.add_system_message("Conversation cleared.", style="dim")
+        conv_log.add_system_message(WELCOME_MESSAGE, style="bold cyan")
 
         metrics_panel = self.query_one("#metrics-panel", MetricsPanel)
         metrics_panel.clear_metrics()
