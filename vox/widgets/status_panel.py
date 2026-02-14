@@ -102,7 +102,8 @@ class StatusPanel(Static):
             AppState.READY: "green",
             AppState.RECORDING: "yellow",
             AppState.TRANSCRIBING: "cyan",
-            AppState.PROCESSING: "yellow",
+            AppState.THINKING: "yellow",
+            AppState.SYNTHESIZING: "cyan",
             AppState.SPEAKING: "magenta",
         }
         return color_map.get(self.current_state, "white")

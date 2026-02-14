@@ -11,7 +11,8 @@ class AppState(Enum):
     READY = "ready"
     RECORDING = "recording"
     TRANSCRIBING = "transcribing"
-    PROCESSING = "processing"
+    THINKING = "thinking"
+    SYNTHESIZING = "synthesizing"
     SPEAKING = "speaking"
 
     def __str__(self) -> str:

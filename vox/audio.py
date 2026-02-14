@@ -1,7 +1,7 @@
 """Audio recording and playback via sounddevice."""
 
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from functools import partial
 
 import numpy as np
@@ -66,8 +66,13 @@ def _record_blocking(
     return np.concatenate(audio_chunks, axis=0).flatten()
 
 
-def _play_stream(chunks: Iterable[np.ndarray], sample_rate: int) -> None:
+def _play_stream(
+    chunks: Iterable[np.ndarray],
+    sample_rate: int,
+    on_first_chunk: Callable[[], None] | None = None,
+) -> None:
     """Play an iterable of audio chunks through the speakers."""
+    first = True
     with sd.OutputStream(
         samplerate=sample_rate,
         channels=1,
@@ -76,6 +81,9 @@ def _play_stream(chunks: Iterable[np.ndarray], sample_rate: int) -> None:
     ) as stream:
         for chunk in chunks:
             audio = np.array(chunk, dtype=np.float32)
+            if first and on_first_chunk is not None:
+                on_first_chunk()
+                first = False
             stream.write(_normalize_audio(audio))
 
 
@@ -95,7 +103,13 @@ async def record_long() -> np.ndarray | None:
     )
 
 
-async def play_stream(chunks: Iterable[np.ndarray], sample_rate: int) -> None:
+async def play_stream(
+    chunks: Iterable[np.ndarray],
+    sample_rate: int,
+    on_first_chunk: Callable[[], None] | None = None,
+) -> None:
     """Play audio chunks asynchronously."""
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, partial(_play_stream, chunks, sample_rate))
+    await loop.run_in_executor(
+        None, partial(_play_stream, chunks, sample_rate, on_first_chunk)
+    )

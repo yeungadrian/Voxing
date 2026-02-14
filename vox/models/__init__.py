@@ -1,10 +1,8 @@
 """Model loading and initialization."""
 
 import contextlib
-import logging
 import os
 import sys
-import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,15 +15,10 @@ from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 from vox.config import settings
 
-logging.getLogger("mlx").setLevel(logging.ERROR)
-logging.getLogger("mlx_audio").setLevel(logging.ERROR)
-warnings.filterwarnings("ignore", message=".*deprecated.*")
-
 
 @contextlib.contextmanager
 def _suppress_output() -> Iterator[None]:
     """Redirect stdout/stderr to devnull and disable tqdm during model loading."""
-    os.environ["TQDM_DISABLE"] = "1"
     devnull = Path(os.devnull).open("w")  # noqa: SIM115
     old_stdout, old_stderr = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = devnull, devnull
@@ -34,7 +27,6 @@ def _suppress_output() -> Iterator[None]:
     finally:
         sys.stdout, sys.stderr = old_stdout, old_stderr
         devnull.close()
-        os.environ.pop("TQDM_DISABLE", None)
 
 
 @dataclass(slots=True)

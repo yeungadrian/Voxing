@@ -1,2 +1,9 @@
-# TUI
-LLM / Voice Assistant TUI in the spirit of Claude Code / Toad
+# Vox
+TUI for assistants using mlx local models
+
+```
+uv run main.py
+```
+
+TODO:
+- Ability to run via `uvx vox`?

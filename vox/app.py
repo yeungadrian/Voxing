@@ -235,7 +235,7 @@ class VoxApp(App):
         metrics_panel = self.query_one("#metrics-panel", MetricsPanel)
 
         start_time = time.time()
-        self.state = AppState.PROCESSING
+        self.state = AppState.THINKING
 
         llm_start = time.time()
         ttft: float = 0.0
@@ -265,9 +265,14 @@ class VoxApp(App):
         tts_time: float | None = None
 
         if self.tts_enabled:
-            self.state = AppState.SPEAKING
+            self.state = AppState.SYNTHESIZING
+            loop = asyncio.get_running_loop()
+
+            def on_play() -> None:
+                loop.call_soon_threadsafe(setattr, self, "state", AppState.SPEAKING)
+
             tts_start = time.time()
-            await tts_mod.speak(self.models.tts, full_response)
+            await tts_mod.speak(self.models.tts, full_response, on_first_chunk=on_play)
             tts_time = time.time() - tts_start
 
         stats = InteractionStats(

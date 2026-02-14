@@ -1,6 +1,6 @@
 """Chatterbox text-to-speech wrapper."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import mlx.nn as nn
 import numpy as np
@@ -53,6 +53,12 @@ def _synthesize(tts_model: nn.Module, text: str) -> Iterator[np.ndarray]:
         yield np.array(result.audio, dtype=np.float32)
 
 
-async def speak(tts_model: nn.Module, text: str) -> None:
+async def speak(
+    tts_model: nn.Module,
+    text: str,
+    on_first_chunk: Callable[[], None] | None = None,
+) -> None:
     """Synthesize and play speech asynchronously."""
-    await play_stream(_synthesize(tts_model, text), settings.tts_sample_rate)
+    await play_stream(
+        _synthesize(tts_model, text), settings.tts_sample_rate, on_first_chunk
+    )
