@@ -36,27 +36,3 @@ class InteractionStats:
         """Calculate derived metrics."""
         if self.llm_time > 0 and self.tokens > 0:
             self.tokens_per_sec = self.tokens / self.llm_time
-        if self.total_time == 0.0:
-            self.total_time = (
-                (self.audio_duration or 0.0)
-                + (self.transcribe_time or 0.0)
-                + self.llm_time
-                + (self.tts_time or 0.0)
-            )
-
-    def format_summary(self) -> str:
-        """Return formatted summary string."""
-        lines: list[str] = []
-        if self.audio_duration is not None:
-            lines.append(f"Audio: {self.audio_duration:.2f}s")
-        if self.transcribe_time is not None:
-            lines.append(f"Transcribe: {self.transcribe_time:.2f}s")
-        lines.append(f"TTFT: {self.ttft:.2f}s")
-        lines.append(
-            f"LLM: {self.llm_time:.2f}s "
-            f"({self.tokens} tokens @ {self.tokens_per_sec:.1f}t/s)"
-        )
-        if self.tts_time is not None:
-            lines.append(f"TTS: {self.tts_time:.2f}s")
-        lines.append(f"Total: {self.total_time:.2f}s")
-        return "\n".join(lines)

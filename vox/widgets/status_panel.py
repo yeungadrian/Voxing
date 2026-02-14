@@ -5,7 +5,6 @@ from datetime import datetime
 from rich.text import Text
 from textual.reactive import reactive
 from textual.timer import Timer
-from textual.visual import VisualType
 from textual.widgets import Static
 
 from vox.state import AppState
@@ -21,32 +20,8 @@ class StatusPanel(Static):
     status_message: reactive[str | None] = reactive(None)
     last_update: reactive[datetime] = reactive(datetime.now())
     _frame_index: int = 0
-
-    def __init__(
-        self,
-        content: VisualType = "",
-        *,
-        expand: bool = False,
-        shrink: bool = False,
-        markup: bool = True,
-        name: str | None = None,
-        id: str | None = None,
-        classes: str | None = None,
-        disabled: bool = False,
-    ) -> None:
-        """Initialize the status panel."""
-        super().__init__(
-            content,
-            expand=expand,
-            shrink=shrink,
-            markup=markup,
-            name=name,
-            id=id,
-            classes=classes,
-            disabled=disabled,
-        )
-        self._animation_timer: Timer | None = None
-        self._ephemeral_timer: Timer | None = None
+    _animation_timer: Timer | None = None
+    _ephemeral_timer: Timer | None = None
 
     def show_status_message(self, message: str) -> None:
         """Show a status message that persists until explicitly cleared."""

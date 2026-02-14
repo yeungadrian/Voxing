@@ -47,20 +47,20 @@ class Models:
     tokenizer: TokenizerWrapper
 
 
-def load_stt() -> nn.Module:
+def load_stt(model_name: str | None = None) -> nn.Module:
     """Load the speech-to-text model."""
     with _suppress_output():
-        return load_stt_model(settings.stt_model)
+        return load_stt_model(model_name or settings.stt_model)
 
 
-def load_llm() -> tuple[nn.Module, TokenizerWrapper]:
+def load_llm(model_name: str | None = None) -> tuple[nn.Module, TokenizerWrapper]:
     """Load the LLM model and tokenizer."""
     with _suppress_output():
-        model, tokenizer = load(settings.llm_model)  # ty:ignore[invalid-assignment]
+        model, tokenizer = load(model_name or settings.llm_model)  # ty:ignore[invalid-assignment]
     return model, tokenizer
 
 
-def load_tts() -> nn.Module:
+def load_tts(model_name: str | None = None) -> nn.Module:
     """Load the text-to-speech model."""
     with _suppress_output():
-        return load_tts_model(settings.tts_model)  # ty:ignore[invalid-argument-type]
+        return load_tts_model(model_name or settings.tts_model)  # ty:ignore[invalid-argument-type]

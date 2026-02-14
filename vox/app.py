@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import time
+from os.path import commonprefix
 
 from rich.text import Text
 from textual import on
@@ -15,35 +16,33 @@ from textual.reactive import reactive
 from textual.widgets import Footer, Label, TextArea
 
 from vox import audio as audio_mod
+from vox.config import settings
 from vox.models import Models, load_llm, load_stt, load_tts
 from vox.models import llm as llm_mod
 from vox.models import stt as stt_mod
 from vox.models import tts as tts_mod
+from vox.models.llm import ChatMessage
 from vox.state import AppState, InteractionStats
 from vox.themes import TOKYO_NIGHT
-from vox.widgets import ConversationLog, MetricsPanel, StatusPanel
+from vox.widgets import (
+    ConversationLog,
+    MetricsPanel,
+    ModelSelection,
+    ModelSelector,
+    StatusPanel,
+)
 
 COMMAND_DESCRIPTIONS: dict[str, str] = {
     "/record": "Record and process voice",
     "/transcribe": "Transcribe audio to text",
     "/tts": "Toggle text-to-speech",
+    "/model": "Switch models",
     "/clear": "Clear conversation",
     "/exit": "Exit application",
 }
 COMMANDS = list(COMMAND_DESCRIPTIONS)
 
 WELCOME_MESSAGE = "Welcome to Vox! Type a message, /record, or /transcribe."
-
-
-def _longest_common_prefix(strings: list[str]) -> str:
-    """Return the longest common prefix of a list of strings."""
-    if not strings:
-        return ""
-    prefix = strings[0]
-    for s in strings[1:]:
-        while not s.startswith(prefix):
-            prefix = prefix[:-1]
-    return prefix
 
 
 class VoxApp(App):
@@ -58,7 +57,6 @@ class VoxApp(App):
     ]
 
     state: reactive[AppState] = reactive(AppState.LOADING)
-    current_metrics: reactive[InteractionStats | None] = reactive(None)
 
     def __init__(self) -> None:
         """Initialize the Vox TUI app."""
@@ -66,7 +64,7 @@ class VoxApp(App):
         self.models: Models = None
         self.is_processing = False
         self.tts_enabled = False
-        self.chat_history: list[dict[str, str]] = []
+        self.chat_history: list[ChatMessage] = []
 
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
@@ -148,10 +146,7 @@ class VoxApp(App):
         event.prevent_default()
         event.stop()
 
-        if len(matches) == 1:
-            replacement = matches[0]
-        else:
-            replacement = _longest_common_prefix(matches)
+        replacement = matches[0] if len(matches) == 1 else commonprefix(matches)
 
         text_area.clear()
         text_area.insert(replacement)
@@ -195,7 +190,7 @@ class VoxApp(App):
 
     def _hide_command_hints(self) -> None:
         """Hide command hints."""
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(NoMatches):
             self.query_one("#command-hint", Label).add_class("hidden")
 
     async def _process_input(self, text: str) -> None:
@@ -214,6 +209,8 @@ class VoxApp(App):
                     await self._run_transcribe()
                 elif command == "/tts":
                     self._toggle_tts()
+                elif command == "/model":
+                    self._open_model_selector()
                 elif command == "/clear":
                     self.action_clear_conversation()
                 elif command == "/exit":
@@ -238,11 +235,10 @@ class VoxApp(App):
         metrics_panel = self.query_one("#metrics-panel", MetricsPanel)
 
         start_time = time.time()
-        stats = InteractionStats()
-
         self.state = AppState.PROCESSING
 
         llm_start = time.time()
+        ttft: float = 0.0
         first_token = True
         token_count = 0
         full_response = ""
@@ -253,7 +249,7 @@ class VoxApp(App):
             self.models.llm, self.models.tokenizer, text, history=self.chat_history
         ):
             if first_token:
-                stats.ttft = time.time() - llm_start
+                ttft = time.time() - llm_start
                 first_token = False
 
             full_response += token
@@ -265,20 +261,22 @@ class VoxApp(App):
         self.chat_history.append({"role": "user", "content": text})
         self.chat_history.append({"role": "assistant", "content": full_response})
 
-        stats.llm_time = time.time() - llm_start
-        stats.tokens = token_count
+        llm_time = time.time() - llm_start
+        tts_time: float | None = None
 
         if self.tts_enabled:
             self.state = AppState.SPEAKING
             tts_start = time.time()
             await tts_mod.speak(self.models.tts, full_response)
-            stats.tts_time = time.time() - tts_start
+            tts_time = time.time() - tts_start
 
-        stats.total_time = time.time() - start_time
-        if stats.llm_time > 0 and stats.tokens > 0:
-            stats.tokens_per_sec = stats.tokens / stats.llm_time
-
-        self.current_metrics = stats
+        stats = InteractionStats(
+            ttft=ttft,
+            llm_time=llm_time,
+            tts_time=tts_time,
+            total_time=time.time() - start_time,
+            tokens=token_count,
+        )
         metrics_panel.update_metrics(stats)
         self.state = AppState.READY
 
@@ -348,6 +346,88 @@ class VoxApp(App):
         status_panel = self.query_one("#status-panel", StatusPanel)
         self.tts_enabled = not self.tts_enabled
         status_panel.tts_enabled = self.tts_enabled
+
+    def _open_model_selector(self) -> None:
+        """Open the model selector modal."""
+        self.push_screen(
+            ModelSelector(
+                current_stt=settings.stt_model,
+                current_llm=settings.llm_model,
+                current_tts=settings.tts_model,
+            ),
+        )
+
+    def on_model_selector_changed(self, event: ModelSelector.Changed) -> None:
+        """Handle model selection changes from the modal."""
+        self._apply_model_selection(event.selection)
+
+    def _apply_model_selection(self, selection: ModelSelection | None) -> None:
+        """Apply model changes from the selector modal."""
+        if selection is None:
+            return
+
+        reload_stt = selection.stt_model != settings.stt_model
+        reload_llm = selection.llm_model != settings.llm_model
+        reload_tts = selection.tts_model != settings.tts_model
+
+        if not (reload_stt or reload_llm or reload_tts):
+            return
+
+        settings.stt_model = selection.stt_model
+        settings.llm_model = selection.llm_model
+        settings.tts_model = selection.tts_model
+
+        self.run_worker(
+            self._reload_models(
+                reload_stt=reload_stt,
+                reload_llm=reload_llm,
+                reload_tts=reload_tts,
+            )
+        )
+
+    async def _reload_models(
+        self,
+        *,
+        reload_stt: bool,
+        reload_llm: bool,
+        reload_tts: bool,
+    ) -> None:
+        """Reload changed models in the background."""
+        loop = asyncio.get_running_loop()
+        status_panel = self.query_one("#status-panel", StatusPanel)
+        text_area = self.query_one("#user-input", TextArea)
+        text_area.disabled = True
+        self.state = AppState.LOADING
+
+        if reload_stt:
+            status_panel.show_status_message("Reloading STT...")
+            stt = await loop.run_in_executor(None, load_stt, settings.stt_model)
+            self.models.stt = stt
+
+        if reload_llm:
+            status_panel.show_status_message("Reloading LLM...")
+            llm, tokenizer = await loop.run_in_executor(
+                None, load_llm, settings.llm_model
+            )
+            self.models.llm = llm
+            self.models.tokenizer = tokenizer
+
+        if reload_tts:
+            status_panel.show_status_message("Reloading TTS...")
+            tts = await loop.run_in_executor(None, load_tts, settings.tts_model)
+            self.models.tts = tts
+
+        status_panel.clear_status_message()
+        text_area.disabled = False
+        text_area.focus()
+        self.state = AppState.READY
+
+        if isinstance(self.screen, ModelSelector):
+            self.screen.update_loaded_models(
+                stt=settings.stt_model,
+                llm=settings.llm_model,
+                tts=settings.tts_model,
+            )
 
     def action_clear_conversation(self) -> None:
         """Clear the conversation history."""

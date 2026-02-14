@@ -10,36 +10,9 @@ from textual.widgets import RichLog
 class ConversationLog(RichLog):
     """Widget for displaying conversation history with rich formatting."""
 
-    def __init__(
-        self,
-        *,
-        max_lines: int | None = None,
-        min_width: int = 78,
-        wrap: bool = False,
-        highlight: bool = False,
-        markup: bool = False,
-        auto_scroll: bool = True,
-        name: str | None = None,
-        id: str | None = None,
-        classes: str | None = None,
-        disabled: bool = False,
-    ) -> None:
-        """Initialize the conversation log."""
-        super().__init__(
-            max_lines=max_lines,
-            min_width=min_width,
-            wrap=wrap,
-            highlight=highlight,
-            markup=markup,
-            auto_scroll=auto_scroll,
-            name=name,
-            id=id,
-            classes=classes,
-            disabled=disabled,
-        )
-        self._streaming_start: datetime | None = None
-        self._streaming_text: str = ""
-        self._streaming_line_count: int = 0
+    _streaming_start: datetime | None = None
+    _streaming_text: str = ""
+    _streaming_line_count: int = 0
 
     def add_user_message(self, text: str) -> None:
         """Add a user message to the conversation log."""
@@ -48,15 +21,6 @@ class ConversationLog(RichLog):
         message.append(f"[{time_str}] ", style="dim")
         message.append("You: ", style="bold cyan")
         message.append(text, style="white")
-        self.write(message)
-
-    def add_assistant_message(self, text: str) -> None:
-        """Add an assistant message to the conversation log."""
-        time_str = datetime.now().strftime("%H:%M:%S")
-        message = Text()
-        message.append(f"[{time_str}] ", style="dim")
-        message.append("Assistant: ", style="bold magenta")
-        message.append(text, style="italic white")
         self.write(message)
 
     def add_system_message(self, text: str, style: str = "yellow") -> None:

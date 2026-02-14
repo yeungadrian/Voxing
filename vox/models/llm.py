@@ -1,6 +1,6 @@
 """LFM2.5 streaming LLM wrapper."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 
 import mlx.nn as nn
 from mlx_lm import stream_generate
@@ -36,7 +36,7 @@ async def generate_streaming(
     user_input: str,
     max_tokens: int = settings.llm_max_tokens,
     history: list[ChatMessage] | None = None,
-) -> AsyncIterator[str]:
+) -> AsyncGenerator[str]:
     """Async generator that yields tokens as they are generated."""
     prompt = _format_prompt(tokenizer, user_input, history)
     sampler = make_sampler(temp=0.1, top_k=50, top_p=0.1)

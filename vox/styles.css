@@ -110,23 +110,94 @@ Footer {
     }
 }
 
-/* State-specific styling */
-.state-ready {
-    color: $success;
+/* Model selector modal */
+ModelSelector {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.6);
 }
 
-.state-recording {
-    color: $warning;
+#model-dialog {
+    width: 70;
+    height: auto;
+    max-height: 80%;
+    background: #1a1b26;
+    border: solid #414868;
+    padding: 1 2;
 }
 
-.state-transcribing {
-    color: $accent;
+#model-tabs {
+    height: auto;
+    background: #1a1b26;
 }
 
-.state-processing {
-    color: $warning;
+#model-tabs ContentSwitcher {
+    height: auto;
 }
 
-.state-speaking {
-    color: $accent;
+#model-tabs TabPane {
+    height: auto;
+    padding: 1 1;
+    background: #1a1b26;
+}
+
+#model-tabs Tabs {
+    background: #1a1b26;
+}
+
+#model-tabs Tab {
+    color: #565f89;
+    background: #1a1b26;
+}
+
+#model-tabs Tab.-active {
+    color: #7aa2f7;
+    text-style: bold;
+}
+
+#model-tabs Underline .underline--bar {
+    color: #414868;
+}
+
+#model-tabs Underline .underline--highlight {
+    color: #7aa2f7;
+}
+
+RadioSet {
+    background: transparent;
+    border: none;
+    height: auto;
+    width: 100%;
+}
+
+RadioSet:focus {
+    border: none;
+}
+
+RadioButton {
+    background: transparent;
+    color: #c0caf5;
+    padding: 0 1;
+    height: auto;
+}
+
+RadioButton .toggle--button {
+    color: #414868;
+}
+
+RadioButton:hover {
+    background: #283457;
+}
+
+ToggleButton.-selected {
+    color: #7aa2f7;
+    text-style: bold;
+}
+
+RadioButton.model-loaded .toggle--button {
+    color: #9ece6a;
+}
+
+RadioButton.model-loaded .toggle--label {
+    color: #9ece6a;
+    text-style: bold;
 }

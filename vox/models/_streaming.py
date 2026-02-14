@@ -1,7 +1,7 @@
 """Async bridge for synchronous iterators."""
 
 import asyncio
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncGenerator, Callable, Iterator
 
 _SENTINEL = object()
 
@@ -10,7 +10,7 @@ async def sync_to_async_iter[T](
     fn: Callable[..., Iterator[T]],
     *args: object,
     **kwargs: object,
-) -> AsyncIterator[T]:
+) -> AsyncGenerator[T]:
     """Bridge a synchronous iterator into an async iterator via a thread executor.
 
     Runs fn(*args, **kwargs) in a thread, pushing each yielded item through an
