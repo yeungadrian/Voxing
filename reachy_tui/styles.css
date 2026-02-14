@@ -18,9 +18,7 @@ Screen {
     background: transparent;
     padding: 1;
     margin: 0 0;
-    scrollbar-background: $panel 20%;
-    scrollbar-color: $primary;
-    scrollbar-gutter: stable;
+    scrollbar-size: 0 0;
 }
 
 /* Bottom section (docks above footer) */
@@ -113,12 +111,16 @@ Footer {
 }
 
 /* State-specific styling */
-.state-standby {
-    color: $primary 60%;
+.state-ready {
+    color: $success;
 }
 
-.state-awake {
-    color: $success;
+.state-recording {
+    color: $warning;
+}
+
+.state-transcribing {
+    color: $accent;
 }
 
 .state-processing {

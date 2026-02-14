@@ -9,13 +9,16 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Footer, Label, TextArea
 
-from reachy_tui.mocks.audio_mock import MockAudioRecorder
-from reachy_tui.mocks.llm_mock import MockLLM
-from reachy_tui.mocks.stt_mock import MockSTT
-from reachy_tui.mocks.tts_mock import MockTTS
-from reachy_tui.state import AppState, InputMode, InteractionStats
+from reachy_tui.models import Models
+from reachy_tui.models import audio as audio_mod
+from reachy_tui.models import llm as llm_mod
+from reachy_tui.models import stt as stt_mod
+from reachy_tui.models import tts as tts_mod
+from reachy_tui.state import AppState, InteractionStats
 from reachy_tui.themes import TOKYO_NIGHT
 from reachy_tui.widgets import ConversationLog, MetricsPanel, StatusPanel
+
+COMMANDS = ["/record", "/transcribe", "/tts", "/clear", "/exit"]
 
 
 class ReachyTuiApp(App):
@@ -27,91 +30,57 @@ class ReachyTuiApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
         Binding("ctrl+c", "clear_conversation", "Clear"),
-        Binding("ctrl+r", "reset", "Reset"),
     ]
 
-    # Reactive attributes
-    state: reactive[AppState] = reactive(AppState.STANDBY)
-    conversation_history: reactive[list] = reactive([])
+    state: reactive[AppState] = reactive(AppState.READY)
     current_metrics: reactive[InteractionStats | None] = reactive(None)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, models: Models) -> None:
         """Initialize the Reachy TUI app."""
-        super().__init__(*args, **kwargs)
-
-        # Initialize mock components
-        self.audio_recorder = MockAudioRecorder()
-        self.stt = MockSTT()
-        self.llm = MockLLM()
-        self.tts = MockTTS()
-
-        # Processing flag
+        super().__init__()
+        self.models = models
         self.is_processing = False
-
-        # Input mode settings - start in text mode with TTS off
-        self.input_mode = InputMode.TEXT
         self.tts_enabled = False
 
     def compose(self) -> ComposeResult:
-        """Compose the app layout.
-
-        Returns:
-            ComposeResult with all widgets.
-        """
-        # Main conversation area
+        """Compose the app layout."""
         yield ConversationLog(id="conversation-log", wrap=True)
 
-        # Bottom section (status + input)
         with Vertical(id="bottom-section"):
-            # Status bar
             with Horizontal(id="status-bar"):
                 yield StatusPanel(id="status-panel")
                 yield MetricsPanel(id="metrics-panel")
 
-            # Input
             with Container(id="input-container"):
                 yield Label(id="command-hint", classes="hidden")
-                yield TextArea(
-                    id="user-input",
-                )
+                yield TextArea(id="user-input")
 
         yield Footer()
 
     def on_mount(self) -> None:
         """Called when app is mounted."""
-        # Apply Tokyo Night theme
         self.design = TOKYO_NIGHT
 
         text_area = self.query_one("#user-input", TextArea)
         text_area.focus()
         text_area.show_line_numbers = False
 
-        # Display welcome message
         conv_log = self.query_one("#conversation-log", ConversationLog)
         conv_log.add_system_message(
-            "Welcome to Reachy! Starting in text mode with TTS off. "
-            "Type /wake to start.",
+            "Welcome to Reachy! Type a message, /record, or /transcribe.",
             style="bold cyan",
         )
 
-        # Initialize status panel
         status_panel = self.query_one("#status-panel", StatusPanel)
         status_panel.current_state = self.state
-        status_panel.input_mode = self.input_mode
         status_panel.tts_enabled = self.tts_enabled
 
     def watch_state(self, new_state: AppState) -> None:
-        """Called when state changes.
-
-        Args:
-            new_state: The new application state.
-        """
-        # Update status panel (only if mounted and widgets exist)
+        """Called when state changes."""
         try:
             status_panel = self.query_one("#status-panel", StatusPanel)
             status_panel.current_state = new_state
         except Exception:
-            # App not yet mounted or widgets not yet created
             pass
 
     @on(TextArea.Changed)
@@ -120,36 +89,25 @@ class ReachyTuiApp(App):
         text_area = event.text_area
         text = text_area.text
 
-        # Show command hints when "/" is typed
         self._update_command_hints(text)
 
-        # Check if just pressed Enter (not Shift+Enter)
         if text.endswith("\n") and not self.is_processing:
-            # Remove the trailing newline
             user_input = text[:-1].strip()
-
             if user_input:
-                # Clear input and hints
                 text_area.clear()
                 self._hide_command_hints()
-                # Process the input
-                self.run_worker(self.process_user_input(user_input))
+                self.run_worker(self._process_input(user_input))
 
     def _update_command_hints(self, text: str) -> None:
         """Update command hints based on current input."""
         hint_label = self.query_one("#command-hint", Label)
 
         if text.startswith("/") and not text.endswith("\n"):
-            # Show available commands
-            commands = ["/wake", "/sleep", "/exit", "/text", "/audio", "/tts"]
             typed = text.strip().lower()
-
-            # Filter matching commands
-            matches = [cmd for cmd in commands if cmd.startswith(typed)]
+            matches = [cmd for cmd in COMMANDS if cmd.startswith(typed)]
 
             if matches:
-                hint_text = "  ".join(matches)
-                hint_label.update(hint_text)
+                hint_label.update("  ".join(matches))
                 hint_label.remove_class("hidden")
             else:
                 self._hide_command_hints()
@@ -158,118 +116,69 @@ class ReachyTuiApp(App):
 
     def _hide_command_hints(self) -> None:
         """Hide command hints."""
-        try:
-            hint_label = self.query_one("#command-hint", Label)
-            hint_label.add_class("hidden")
-        except Exception:
-            pass
+        import contextlib
 
-    async def process_user_input(self, text: str) -> None:
-        """Process user input through the mock pipeline.
+        with contextlib.suppress(Exception):
+            self.query_one("#command-hint", Label).add_class("hidden")
 
-        Args:
-            text: User's input text.
-        """
+    async def _process_input(self, text: str) -> None:
+        """Route user input to the appropriate handler."""
         self.is_processing = True
         conv_log = self.query_one("#conversation-log", ConversationLog)
 
-        # Handle commands
-        if text.startswith("/"):
-            command = text.lower().strip()
-            if command == "/wake":
-                self._handle_wake_command()
-                self.is_processing = False
-                return
-            if command == "/sleep":
-                self._handle_sleep_command()
-                self.is_processing = False
-                return
-            if command == "/exit":
-                self.exit()
-                return
-            if command == "/text":
-                self._handle_text_mode_command()
-                self.is_processing = False
-                return
-            if command == "/audio":
-                self._handle_audio_mode_command()
-                self.is_processing = False
-                return
-            if command == "/tts":
-                self._handle_tts_toggle_command()
-                self.is_processing = False
-                return
-            conv_log.add_system_message(
-                f"Unknown command: {command}. "
-                "Available: /wake, /sleep, /exit, /text, /audio, /tts",
-                style="red",
-            )
-            self.is_processing = False
-            return
-
-        # Check if in standby mode
-        if self.state == AppState.STANDBY:
-            conv_log.add_system_message(
-                "In standby mode. Type /wake to activate.", style="dim yellow"
-            )
-            self.is_processing = False
-            return
-
-        # Add user message to log
-        conv_log.add_user_message(text)
-
-        # Run the full pipeline
         try:
-            await self._run_pipeline(text)
+            if text.startswith("/"):
+                command = text.lower().strip()
+                if command == "/record":
+                    await self._run_record_pipeline()
+                elif command == "/transcribe":
+                    await self._run_transcribe()
+                elif command == "/tts":
+                    self._toggle_tts()
+                elif command == "/clear":
+                    self.action_clear_conversation()
+                elif command == "/exit":
+                    self.exit()
+                else:
+                    conv_log.add_system_message(
+                        f"Unknown command: {command}. "
+                        f"Available: {', '.join(COMMANDS)}",
+                        style="red",
+                    )
+            else:
+                conv_log.add_user_message(text)
+                await self._run_llm_pipeline(text)
         except Exception as e:
             conv_log.add_error(str(e))
+            self.state = AppState.READY
         finally:
             self.is_processing = False
 
-    async def _run_pipeline(self, text: str) -> None:
-        """Run the full mock pipeline for processing user input."""
+    async def _run_llm_pipeline(self, text: str) -> None:
+        """Run LLM generation on text input."""
         conv_log = self.query_one("#conversation-log", ConversationLog)
         metrics_panel = self.query_one("#metrics-panel", MetricsPanel)
 
-        # Initialize timing
         start_time = time.time()
         stats = InteractionStats()
 
-        # Phase 1: Audio + STT (only in audio mode)
-        transcribed_text = text
-        if self.input_mode == InputMode.AUDIO:
-            self.state = AppState.PROCESSING
-
-            # 1. Simulate audio recording
-            audio_start = time.time()
-            _, audio_duration = await self.audio_recorder.record(text)
-            stats.audio_duration = time.time() - audio_start
-
-            # 2. Simulate STT transcription
-            stt_start = time.time()
-            transcribed_text = await self.stt.transcribe(text)
-            stats.transcribe_time = time.time() - stt_start
-
-            # Show transcribed text if different
-            if transcribed_text.lower() != text.lower():
-                conv_log.add_system_message(
-                    f"Heard: {transcribed_text}", style="dim italic"
-                )
-
-        # Phase 2: LLM generation (always runs)
         self.state = AppState.PROCESSING
 
         llm_start = time.time()
         first_token = True
         token_count = 0
+        full_response = ""
 
         conv_log.start_streaming_response()
 
-        async for token in self.llm.generate_streaming(transcribed_text):
+        async for token in llm_mod.generate_streaming(
+            self.models.llm, self.models.tokenizer, text
+        ):
             if first_token:
                 stats.ttft = time.time() - llm_start
                 first_token = False
 
+            full_response += token
             conv_log.update_streaming_response(token)
             token_count += 1
 
@@ -278,82 +187,86 @@ class ReachyTuiApp(App):
         stats.llm_time = time.time() - llm_start
         stats.tokens = token_count
 
-        # Get the full response text
-        full_response = " ".join(self.llm.conversation_history[-1]["content"].split())
-
-        # Phase 3: TTS (only if enabled)
         if self.tts_enabled:
             self.state = AppState.SPEAKING
-
             tts_start = time.time()
-            audio_duration = await self.tts.generate_audio(full_response)
-            await self.tts.playback_audio(audio_duration)
+            await tts_mod.speak(self.models.tts, full_response)
             stats.tts_time = time.time() - tts_start
 
-        # Calculate final metrics
         stats.total_time = time.time() - start_time
         if stats.llm_time > 0 and stats.tokens > 0:
             stats.tokens_per_sec = stats.tokens / stats.llm_time
 
-        # Update metrics panel
         self.current_metrics = stats
         metrics_panel.update_metrics(stats)
+        self.state = AppState.READY
 
-        # Return to awake state
-        self.state = AppState.AWAKE
-
-    def _handle_wake_command(self) -> None:
-        """Handle /wake command."""
+    async def _run_record_pipeline(self) -> None:
+        """Record audio, transcribe, then run LLM pipeline."""
         conv_log = self.query_one("#conversation-log", ConversationLog)
 
-        if self.state == AppState.AWAKE:
-            conv_log.add_system_message("Already awake.", style="yellow")
-        else:
-            self.state = AppState.AWAKE
-            conv_log.add_system_message("Ready to chat!", style="green")
+        self.state = AppState.RECORDING
+        conv_log.add_system_message("Recording... speak now.", style="yellow")
 
-    def _handle_sleep_command(self) -> None:
-        """Handle /sleep command."""
+        audio_data = await audio_mod.record()
+
+        if audio_data is None:
+            conv_log.add_system_message("No audio detected.", style="dim yellow")
+            self.state = AppState.READY
+            return
+
+        self.state = AppState.TRANSCRIBING
+        transcribed = await stt_mod.transcribe(self.models.stt, audio_data)
+
+        if not transcribed:
+            conv_log.add_system_message(
+                "Could not transcribe audio.", style="dim yellow"
+            )
+            self.state = AppState.READY
+            return
+
+        conv_log.add_user_message(transcribed)
+        await self._run_llm_pipeline(transcribed)
+
+    async def _run_transcribe(self) -> None:
+        """Record extended audio and display transcription only."""
         conv_log = self.query_one("#conversation-log", ConversationLog)
 
-        if self.state == AppState.STANDBY:
-            conv_log.add_system_message("Already in standby.", style="yellow")
+        self.state = AppState.RECORDING
+        conv_log.add_system_message(
+            "Transcribe mode: recording up to 3 min (3s silence to stop)...",
+            style="yellow",
+        )
+
+        audio_data = await audio_mod.record_long()
+
+        if audio_data is None:
+            conv_log.add_system_message("No audio detected.", style="dim yellow")
+            self.state = AppState.READY
+            return
+
+        self.state = AppState.TRANSCRIBING
+        transcribed = await stt_mod.transcribe(self.models.stt, audio_data)
+
+        if not transcribed:
+            conv_log.add_system_message(
+                "Could not transcribe audio.", style="dim yellow"
+            )
         else:
-            self.state = AppState.STANDBY
-            conv_log.add_system_message("Standby mode activated.", style="dim")
+            conv_log.add_system_message(
+                f"Transcription: {transcribed}", style="cyan"
+            )
+            self.copy_to_clipboard(transcribed)
+            conv_log.add_system_message("Copied to clipboard.", style="dim")
 
-    def _handle_text_mode_command(self) -> None:
-        """Switch to text input mode."""
-        conv_log = self.query_one("#conversation-log", ConversationLog)
-        status_panel = self.query_one("#status-panel", StatusPanel)
+        self.state = AppState.READY
 
-        if self.input_mode == InputMode.TEXT:
-            conv_log.add_system_message("Already in text mode.", style="yellow")
-        else:
-            self.input_mode = InputMode.TEXT
-            status_panel.input_mode = InputMode.TEXT
-            conv_log.add_system_message("Switched to text input mode.", style="cyan")
-
-    def _handle_audio_mode_command(self) -> None:
-        """Switch to audio input mode."""
-        conv_log = self.query_one("#conversation-log", ConversationLog)
-        status_panel = self.query_one("#status-panel", StatusPanel)
-
-        if self.input_mode == InputMode.AUDIO:
-            conv_log.add_system_message("Already in audio mode.", style="yellow")
-        else:
-            self.input_mode = InputMode.AUDIO
-            status_panel.input_mode = InputMode.AUDIO
-            conv_log.add_system_message("Switched to audio input mode.", style="cyan")
-
-    def _handle_tts_toggle_command(self) -> None:
+    def _toggle_tts(self) -> None:
         """Toggle TTS on/off."""
         conv_log = self.query_one("#conversation-log", ConversationLog)
         status_panel = self.query_one("#status-panel", StatusPanel)
-
         self.tts_enabled = not self.tts_enabled
         status_panel.tts_enabled = self.tts_enabled
-
         status = "enabled" if self.tts_enabled else "disabled"
         conv_log.add_system_message(f"TTS {status}.", style="cyan")
 
@@ -363,19 +276,5 @@ class ReachyTuiApp(App):
         conv_log.clear()
         conv_log.add_system_message("Conversation cleared.", style="dim")
 
-        # Clear LLM history
-        self.llm.clear_history()
-
-        # Clear metrics
         metrics_panel = self.query_one("#metrics-panel", MetricsPanel)
         metrics_panel.clear_metrics()
-
-    def action_reset(self) -> None:
-        """Reset the app to initial state."""
-        self.state = AppState.STANDBY
-        self.action_clear_conversation()
-
-        conv_log = self.query_one("#conversation-log", ConversationLog)
-        conv_log.add_system_message(
-            "App reset. Type /wake to start.", style="bold cyan"
-        )

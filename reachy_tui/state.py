@@ -1,69 +1,37 @@
 """State management data structures for Reachy TUI."""
 
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
 
 
 class AppState(Enum):
     """Application state machine states."""
 
-    STANDBY = "standby"  # On standby, not processing
-    AWAKE = "awake"  # Awake and ready for commands
-    PROCESSING = "processing"  # Processing user request
-    SPEAKING = "speaking"  # Generating/playing TTS response
+    READY = "ready"
+    RECORDING = "recording"
+    TRANSCRIBING = "transcribing"
+    PROCESSING = "processing"
+    SPEAKING = "speaking"
 
     def __str__(self) -> str:
         """Return human-readable state name."""
         return self.value.capitalize()
 
 
-class InputMode(Enum):
-    """Input mode for user interaction."""
-
-    TEXT = "text"
-    AUDIO = "audio"
-
-    def __str__(self) -> str:
-        """Return human-readable mode name."""
-        return self.value.capitalize()
-
-
-@dataclass
-class ConversationMessage:
-    """A single message in the conversation history."""
-
-    role: str  # "user", "assistant", or "system"
-    content: str
-    timestamp: datetime = field(default_factory=datetime.now)
-    metadata: dict = field(default_factory=dict)
-
-    def __str__(self) -> str:
-        """Return formatted message string."""
-        time_str = self.timestamp.strftime("%H:%M:%S")
-        prefix = {
-            "user": "You",
-            "assistant": "Assistant",
-            "system": "System",
-        }.get(self.role, "Unknown")
-
-        return f"[{time_str}] {prefix}: {self.content}"
-
-
 @dataclass
 class InteractionStats:
     """Performance metrics for a single interaction."""
 
-    audio_duration: float | None = None  # None in text mode
-    transcribe_time: float | None = None  # None in text mode
-    ttft: float = 0.0  # Time to first token from LLM (seconds)
-    llm_time: float = 0.0  # Total LLM generation time (seconds)
-    tts_time: float | None = None  # None when TTS disabled
-    total_time: float = 0.0  # End-to-end latency (seconds)
-    tokens: int = 0  # Number of tokens generated
-    tokens_per_sec: float = 0.0  # Generation speed
+    audio_duration: float | None = None
+    transcribe_time: float | None = None
+    ttft: float = 0.0
+    llm_time: float = 0.0
+    tts_time: float | None = None
+    total_time: float = 0.0
+    tokens: int = 0
+    tokens_per_sec: float = 0.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Calculate derived metrics."""
         if self.llm_time > 0 and self.tokens > 0:
             self.tokens_per_sec = self.tokens / self.llm_time
@@ -77,7 +45,7 @@ class InteractionStats:
 
     def format_summary(self) -> str:
         """Return formatted summary string."""
-        lines = []
+        lines: list[str] = []
         if self.audio_duration is not None:
             lines.append(f"Audio: {self.audio_duration:.2f}s")
         if self.transcribe_time is not None:
