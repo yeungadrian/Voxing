@@ -1,6 +1,6 @@
 [project]
 name = "voxing"
-version = "0.1.2"
+version = "0.1.3"
 description = "Voice assistant TUI powered by local MLX models"
 readme = "README.md"
 requires-python = "==3.13.*"

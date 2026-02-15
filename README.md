@@ -12,7 +12,7 @@ Uses [MLX](https://github.com/ml-explore/mlx) for inference and [Textual](https:
 ## Install
 
 ```bash
-uvx --prerelease allow voxing
+uvx --python 3.13 --prerelease allow voxing
 ```
 
 `--prerelease allow` is needed because `mlx-audio` depends on a prerelease version of `transformers`.
