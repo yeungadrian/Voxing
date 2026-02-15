@@ -2,6 +2,9 @@ version = 1
 revision = 3
 requires-python = "==3.13.*"
 
+[options]
+prerelease-mode = "allow"
+
 [[package]]
 name = "addict"
 version = "2.4.0"
@@ -1848,7 +1851,7 @@ wheels = [
 
 [[package]]
 name = "voxing"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "langdetect" },
