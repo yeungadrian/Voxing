@@ -5,12 +5,3 @@ dist/
 
 # macos
 .DS_Store
-
-# testing
-.pytest_cache/
-htmlcov/
-.coverage
-snapshot_report.html
-
-# build
-*.egg-info/
