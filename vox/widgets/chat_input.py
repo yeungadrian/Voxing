@@ -19,7 +19,6 @@ class ChatInput(TextArea):
             self.chat_input = chat_input
             self.value = value
 
-
     def action_submit(self) -> None:
         """Submit the current text."""
         self.post_message(self.Submitted(self, self.text))

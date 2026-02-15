@@ -19,7 +19,7 @@ async def _wait_for_ready(app: VoxApp) -> None:
 async def test_app_loads_with_mocked_models(mock_model_loading):
     """App loads successfully and transitions to READY state."""
     app = VoxApp()
-    async with app.run_test() as pilot:
+    async with app.run_test():
         await _wait_for_ready(app)
         assert app.models is not None
         assert app.state == AppState.READY

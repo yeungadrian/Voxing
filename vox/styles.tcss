@@ -10,7 +10,7 @@
    $success: #9ece6a (green)
    $warning: #e0af68 (yellow)
    $error: #f7768e (red)
-   
+
    Additional Tokyo Night colors hardcoded:
    foreground: #c0caf5
    text-primary: #a9b1d6
