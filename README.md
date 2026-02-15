@@ -1,9 +1,5 @@
 # Voxing
-TUI for assistants using mlx local models
-
-```
-uv run main.py
-```
+TUI for local voice / text assistant on macos
 
 ## Testing
 
