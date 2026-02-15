@@ -50,7 +50,7 @@ class ConversationLog(RichLog):
 
         message = Text()
         message.append("Assistant: ", style=f"bold {PALETTE_5}")
-        message.append(self._streaming_text + " \u2588", style=f"italic {FOREGROUND}")
+        message.append(self._streaming_text + " \u2588", style=FOREGROUND)
 
         self._pop_streaming_lines()
         lines_before = len(self.lines)
@@ -66,7 +66,7 @@ class ConversationLog(RichLog):
 
         message = Text()
         message.append("Assistant: ", style=f"bold {PALETTE_5}")
-        message.append(self._streaming_text, style=f"italic {FOREGROUND}")
+        message.append(self._streaming_text, style=FOREGROUND)
         self.write(message)
 
         self._is_streaming = False
