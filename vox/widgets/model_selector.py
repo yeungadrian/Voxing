@@ -1,6 +1,7 @@
 """Modal screen for switching models."""
 
 from dataclasses import dataclass
+from typing import Literal
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -11,6 +12,8 @@ from textual.widgets import Label, Static
 
 from vox.config import LLM_MODELS, STT_MODELS, TTS_MODELS
 from vox.themes import PALETTE_2, PALETTE_4, PALETTE_8
+
+ModelType = Literal["stt", "llm", "tts"]
 
 
 @dataclass(slots=True)
@@ -25,15 +28,9 @@ class ModelSelection:
 class ModelItem(Static, can_focus=True):
     """Single model item in the list."""
 
-    def __init__(
-        self,
-        model_name: str,
-        is_selected: bool,
-        is_loaded: bool,
-    ) -> None:
+    def __init__(self, model_name: str, is_loaded: bool) -> None:
         super().__init__()
         self.model_name = model_name
-        self.is_selected = is_selected
         self.is_loaded = is_loaded
 
     def render(self) -> Text:
@@ -53,9 +50,8 @@ class ModelItem(Static, can_focus=True):
 
         return text
 
-    def update_state(self, is_selected: bool, is_loaded: bool) -> None:
-        """Update item state and re-render."""
-        self.is_selected = is_selected
+    def update_loaded(self, is_loaded: bool) -> None:
+        """Update loaded state and re-render."""
         self.is_loaded = is_loaded
         self.refresh()
 
@@ -96,51 +92,35 @@ class ModelSelector(ModalScreen[ModelSelection | None]):
         self._current_stt = current_stt
         self._current_llm = current_llm
         self._current_tts = current_tts
-        self._selected_stt = current_stt
-        self._selected_llm = current_llm
-        self._selected_tts = current_tts
-        self._all_models: list[tuple[str, str]] = []
-        self._cursor = 0
+        self._all_models: list[tuple[ModelType, str]] = []
 
     def compose(self) -> ComposeResult:
         """Compose the modal layout."""
         with Vertical(id="model-dialog"), VerticalScroll(id="model-list"):
-            yield Label("STT", classes="model-header")
-            for model in STT_MODELS:
-                self._all_models.append(("stt", model))
-                yield ModelItem(
-                    model,
-                    is_selected=model == self._selected_stt,
-                    is_loaded=model == self._current_stt,
-                )
-
-            yield Label("LLM", classes="model-header")
-            for model in LLM_MODELS:
-                self._all_models.append(("llm", model))
-                yield ModelItem(
-                    model,
-                    is_selected=model == self._selected_llm,
-                    is_loaded=model == self._current_llm,
-                )
-
-            yield Label("TTS", classes="model-header")
-            for model in TTS_MODELS:
-                self._all_models.append(("tts", model))
-                yield ModelItem(
-                    model,
-                    is_selected=model == self._selected_tts,
-                    is_loaded=model == self._current_tts,
-                )
+            for label, models, current in [
+                ("STT", STT_MODELS, self._current_stt),
+                ("LLM", LLM_MODELS, self._current_llm),
+                ("TTS", TTS_MODELS, self._current_tts),
+            ]:
+                yield Label(label, classes="model-header")
+                model_type = label.lower()
+                for model in models:
+                    self._all_models.append((model_type, model))  # type: ignore[arg-type]
+                    yield ModelItem(model, is_loaded=model == current)
 
     def on_mount(self) -> None:
         """Set initial focus on first model item."""
-        items = list(self.query(ModelItem))
+        items = self._get_model_items()
         if items:
             items[0].focus()
 
+    def _get_model_items(self) -> list[ModelItem]:
+        """Get all ModelItem widgets."""
+        return list(self.query(ModelItem))
+
     def _get_focused_item_index(self) -> int:
         """Get index of currently focused ModelItem."""
-        items = list(self.query(ModelItem))
+        items = self._get_model_items()
         for i, item in enumerate(items):
             if item.has_focus:
                 return i
@@ -148,7 +128,7 @@ class ModelSelector(ModalScreen[ModelSelection | None]):
 
     def action_cursor_up(self) -> None:
         """Move focus to previous item."""
-        items = list(self.query(ModelItem))
+        items = self._get_model_items()
         if not items:
             return
 
@@ -158,7 +138,7 @@ class ModelSelector(ModalScreen[ModelSelection | None]):
 
     def action_cursor_down(self) -> None:
         """Move focus to next item."""
-        items = list(self.query(ModelItem))
+        items = self._get_model_items()
         if not items:
             return
 
@@ -175,45 +155,29 @@ class ModelSelector(ModalScreen[ModelSelection | None]):
 
         model_type, model_name = self._all_models[current]
 
-        if model_type == "stt":
-            self._selected_stt = model_name
-        elif model_type == "llm":
-            self._selected_llm = model_name
-        elif model_type == "tts":
-            self._selected_tts = model_name
-
-        self._update_all_items()
-
         selection = ModelSelection(
-            stt_model=self._selected_stt,
-            llm_model=self._selected_llm,
-            tts_model=self._selected_tts,
+            stt_model=model_name if model_type == "stt" else self._current_stt,
+            llm_model=model_name if model_type == "llm" else self._current_llm,
+            tts_model=model_name if model_type == "tts" else self._current_tts,
         )
         self.post_message(self.Changed(selection))
 
     def _update_all_items(self) -> None:
-        """Update all model items to reflect current selection."""
-        items = list(self.query(ModelItem))
+        """Update all model items to reflect current loaded state."""
+        items = self._get_model_items()
         for i, item in enumerate(items):
             if i >= len(self._all_models):
                 continue
 
             model_type, model_name = self._all_models[i]
 
-            is_selected = False
-            is_loaded = False
+            is_loaded = (
+                (model_type == "stt" and model_name == self._current_stt)
+                or (model_type == "llm" and model_name == self._current_llm)
+                or (model_type == "tts" and model_name == self._current_tts)
+            )
 
-            if model_type == "stt":
-                is_selected = model_name == self._selected_stt
-                is_loaded = model_name == self._current_stt
-            elif model_type == "llm":
-                is_selected = model_name == self._selected_llm
-                is_loaded = model_name == self._current_llm
-            elif model_type == "tts":
-                is_selected = model_name == self._selected_tts
-                is_loaded = model_name == self._current_tts
-
-            item.update_state(is_selected, is_loaded)
+            item.update_loaded(is_loaded)
 
     def update_loaded_models(self, stt: str, llm: str, tts: str) -> None:
         """Update which models are marked as loaded."""
