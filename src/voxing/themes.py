@@ -1,4 +1,4 @@
-"""Tokyo Night color scheme for Vox TUI."""
+"""Tokyo Night color scheme for Voxing TUI."""
 
 from textual.design import ColorSystem
 

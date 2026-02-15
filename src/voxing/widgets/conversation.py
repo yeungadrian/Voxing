@@ -4,7 +4,7 @@ from rich.text import Text
 from textual.geometry import Size
 from textual.widgets import RichLog
 
-from vox.themes import FOREGROUND, PALETTE_1, PALETTE_3, PALETTE_5, PALETTE_6
+from voxing.themes import FOREGROUND, PALETTE_1, PALETTE_3, PALETTE_5, PALETTE_6
 
 
 class ConversationLog(RichLog):

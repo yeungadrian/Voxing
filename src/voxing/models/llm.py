@@ -7,8 +7,8 @@ from mlx_lm import stream_generate
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from vox.config import settings
-from vox.models._streaming import sync_to_async_iter
+from voxing.config import settings
+from voxing.models._streaming import sync_to_async_iter
 
 type ChatMessage = dict[str, str]
 

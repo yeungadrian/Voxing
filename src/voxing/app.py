@@ -1,4 +1,4 @@
-"""Main Vox TUI application."""
+"""Main Voxing TUI application."""
 
 import asyncio
 import contextlib
@@ -17,16 +17,16 @@ from textual.timer import Timer
 from textual.widgets import Footer, Label
 from textual.worker import Worker
 
-from vox import audio as audio_mod
-from vox.config import settings
-from vox.models import Models, load_llm, load_stt, load_tts
-from vox.models import llm as llm_mod
-from vox.models import stt as stt_mod
-from vox.models import tts as tts_mod
-from vox.models.llm import ChatMessage
-from vox.state import AppState, InteractionStats
-from vox.themes import FOREGROUND, PALETTE_1, TOKYO_NIGHT
-from vox.widgets import (
+from voxing import audio as audio_mod
+from voxing.config import settings
+from voxing.models import Models, load_llm, load_stt, load_tts
+from voxing.models import llm as llm_mod
+from voxing.models import stt as stt_mod
+from voxing.models import tts as tts_mod
+from voxing.models.llm import ChatMessage
+from voxing.state import AppState, InteractionStats
+from voxing.themes import FOREGROUND, PALETTE_1, TOKYO_NIGHT
+from voxing.widgets import (
     ChatInput,
     ConversationLog,
     MetricsPanel,
@@ -46,11 +46,11 @@ COMMAND_DESCRIPTIONS: dict[str, str] = {
 COMMANDS = list(COMMAND_DESCRIPTIONS)
 
 
-class VoxApp(App):
-    """Vox Voice Assistant TUI Application."""
+class VoxingApp(App):
+    """Voxing Voice Assistant TUI Application."""
 
     CSS_PATH = "styles.tcss"
-    TITLE = "Vox Voice Assistant"
+    TITLE = "Voxing Voice Assistant"
 
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
@@ -60,7 +60,7 @@ class VoxApp(App):
     state: reactive[AppState] = reactive(AppState.LOADING)
 
     def __init__(self) -> None:
-        """Initialize the Vox TUI app."""
+        """Initialize the Voxing TUI app."""
         super().__init__()
         self.models: Models = None
         self.is_processing = False

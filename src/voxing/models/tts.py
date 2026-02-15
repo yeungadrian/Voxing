@@ -9,8 +9,8 @@ import mlx.nn as nn
 import numpy as np
 from langdetect import detect
 
-from vox.audio import play_stream
-from vox.config import settings
+from voxing.audio import play_stream
+from voxing.config import settings
 
 KOKORO_VOICES: dict[str, tuple[str, str]] = {
     "en": ("af_heart", "a"),

@@ -3,8 +3,8 @@
 from rich.text import Text
 from textual.widgets import Static
 
-from vox.state import InteractionStats
-from vox.themes import FOREGROUND
+from voxing.state import InteractionStats
+from voxing.themes import FOREGROUND
 
 
 class MetricsPanel(Static):

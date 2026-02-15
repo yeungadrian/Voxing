@@ -8,7 +8,7 @@ import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 
-from vox.models._streaming import sync_to_async_iter
+from voxing.models._streaming import sync_to_async_iter
 
 
 async def transcribe(stt_model: nn.Module, audio: np.ndarray) -> str:

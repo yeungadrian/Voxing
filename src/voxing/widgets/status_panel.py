@@ -5,8 +5,15 @@ from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widgets import Static
 
-from vox.state import AppState
-from vox.themes import FOREGROUND, PALETTE_1, PALETTE_3, PALETTE_4, PALETTE_5, PALETTE_6
+from voxing.state import AppState
+from voxing.themes import (
+    FOREGROUND,
+    PALETTE_1,
+    PALETTE_3,
+    PALETTE_4,
+    PALETTE_5,
+    PALETTE_6,
+)
 
 
 class StatusPanel(Static):
@@ -68,7 +75,7 @@ class StatusPanel(Static):
         """Update the panel display with current state."""
         content = Text()
 
-        content.append("Vox", style=PALETTE_4)
+        content.append("Voxing", style=PALETTE_4)
         content.append("  •  ")
 
         if self.current_state != AppState.READY:

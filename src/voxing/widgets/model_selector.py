@@ -10,8 +10,8 @@ from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Label, Static
 
-from vox.config import LLM_MODELS, STT_MODELS, TTS_MODELS
-from vox.themes import PALETTE_2, PALETTE_4, PALETTE_8
+from voxing.config import LLM_MODELS, STT_MODELS, TTS_MODELS
+from voxing.themes import PALETTE_2, PALETTE_4, PALETTE_8
 
 ModelType = Literal["stt", "llm", "tts"]
 

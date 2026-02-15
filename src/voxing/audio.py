@@ -7,7 +7,7 @@ from functools import partial
 import numpy as np
 import sounddevice as sd
 
-from vox.config import settings
+from voxing.config import settings
 
 
 def _rms(audio: np.ndarray) -> float:

@@ -21,7 +21,7 @@ TTS_MODELS: tuple[str, ...] = (DEFAULT_TTS_MODEL,)
 
 
 class Settings(BaseSettings):
-    """Vox TUI configuration, overridable via VOX_ env vars or .env file."""
+    """Voxing TUI configuration, overridable via VOX_ env vars or .env file."""
 
     model_config = SettingsConfigDict(env_prefix="VOX_")
 

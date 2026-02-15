@@ -1,5 +1,5 @@
 [project]
-name = "vox"
+name = "voxing"
 version = "0.1.0"
 description = "Voice assistant TUI powered by local MLX models"
 readme = "README.md"
@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
-vox = "vox.__main__:main"
+voxing = "voxing.__main__:main"
 
 [build-system]
 requires = ["uv_build>=0.10.2,<0.11.0"]

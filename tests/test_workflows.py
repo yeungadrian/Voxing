@@ -1,8 +1,8 @@
 """Integration tests for user workflows."""
 
-from vox.app import VoxApp
-from vox.state import AppState
-from vox.widgets import (
+from voxing.app import VoxingApp
+from voxing.state import AppState
+from voxing.widgets import (
     ChatInput,
     ConversationLog,
     MetricsPanel,
@@ -11,14 +11,14 @@ from vox.widgets import (
 )
 
 
-async def _wait_for_ready(app: VoxApp) -> None:
+async def _wait_for_ready(app: VoxingApp) -> None:
     """Wait for all workers to complete and process pending messages."""
     await app.workers.wait_for_complete()
 
 
 async def test_app_loads_with_mocked_models(mock_model_loading):
     """App loads successfully and transitions to READY state."""
-    app = VoxApp()
+    app = VoxingApp()
     async with app.run_test():
         await _wait_for_ready(app)
         assert app.models is not None
@@ -30,7 +30,7 @@ async def test_app_loads_with_mocked_models(mock_model_loading):
 
 async def test_clear_command_clears_history(mock_model_loading):
     """'/clear' command clears conversation history."""
-    app = VoxApp()
+    app = VoxingApp()
     async with app.run_test() as pilot:
         await _wait_for_ready(app)
 
@@ -48,7 +48,7 @@ async def test_clear_command_clears_history(mock_model_loading):
 
 async def test_tts_command_toggles_tts(mock_model_loading):
     """'/tts' command toggles TTS on and off."""
-    app = VoxApp()
+    app = VoxingApp()
     async with app.run_test() as pilot:
         await _wait_for_ready(app)
 
@@ -73,7 +73,7 @@ async def test_tts_command_toggles_tts(mock_model_loading):
 
 async def test_tab_completion_for_commands(mock_model_loading):
     """Tab key completes commands."""
-    app = VoxApp()
+    app = VoxingApp()
     async with app.run_test() as pilot:
         await _wait_for_ready(app)
 
@@ -87,7 +87,7 @@ async def test_tab_completion_for_commands(mock_model_loading):
 
 async def test_command_hints_appear_when_typing_slash(mock_model_loading):
     """Command hints display when typing '/'."""
-    app = VoxApp()
+    app = VoxingApp()
     async with app.run_test() as pilot:
         await _wait_for_ready(app)
 
@@ -106,7 +106,7 @@ async def test_command_hints_appear_when_typing_slash(mock_model_loading):
 
 async def test_text_input_triggers_llm_generation(mock_model_loading, mock_llm_stream):
     """Text input triggers LLM generation workflow."""
-    app = VoxApp()
+    app = VoxingApp()
     async with app.run_test() as pilot:
         await _wait_for_ready(app)
 
@@ -125,7 +125,7 @@ async def test_text_input_triggers_llm_generation(mock_model_loading, mock_llm_s
 
 async def test_double_esc_cancels_processing(mock_model_loading):
     """Double ESC cancels ongoing processing."""
-    app = VoxApp()
+    app = VoxingApp()
     async with app.run_test() as pilot:
         await _wait_for_ready(app)
 
@@ -145,7 +145,7 @@ async def test_double_esc_cancels_processing(mock_model_loading):
 
 async def test_unknown_command_shows_error(mock_model_loading):
     """Unknown commands display error message."""
-    app = VoxApp()
+    app = VoxingApp()
     async with app.run_test() as pilot:
         await _wait_for_ready(app)
 
@@ -163,7 +163,7 @@ async def test_unknown_command_shows_error(mock_model_loading):
 
 async def test_metrics_update_after_llm_generation(mock_model_loading, mock_llm_stream):
     """Metrics panel updates after LLM generation."""
-    app = VoxApp()
+    app = VoxingApp()
     async with app.run_test() as pilot:
         await _wait_for_ready(app)
 
@@ -184,7 +184,7 @@ async def test_record_pipeline_runs_full_flow(
     mock_model_loading, mock_llm_stream, mock_audio_record, mock_stt_transcribe
 ):
     """'/record' command records audio, transcribes, and runs LLM pipeline."""
-    app = VoxApp()
+    app = VoxingApp()
     async with app.run_test() as pilot:
         await _wait_for_ready(app)
 
@@ -203,7 +203,7 @@ async def test_record_pipeline_runs_full_flow(
 
 async def test_model_selector_navigation(mock_model_loading):
     """'/model' opens selector; j/k navigate; escape dismisses."""
-    app = VoxApp()
+    app = VoxingApp()
     async with app.run_test() as pilot:
         await _wait_for_ready(app)
 

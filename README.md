@@ -1,4 +1,4 @@
-# Vox
+# Voxing
 TUI for assistants using mlx local models
 
 ```
@@ -18,4 +18,4 @@ uv run pytest --snapshot-update
 ```
 
 TODO:
-- Ability to run via `uvx vox`?
+- Ability to run via `uvx voxing`?

@@ -1,11 +1,11 @@
-"""Shared pytest fixtures for Vox tests."""
+"""Shared pytest fixtures for Voxing tests."""
 
 from unittest.mock import AsyncMock, Mock, patch
 
 import numpy as np
 import pytest
 
-from vox.models import Models
+from voxing.models import Models
 
 
 @pytest.fixture
@@ -32,11 +32,11 @@ def mock_models(mock_tokenizer):
 def mock_model_loading(mock_models):
     """Patch model loading functions to return mocks instantly."""
     with (
-        patch("vox.app.load_stt", return_value=mock_models.stt),
+        patch("voxing.app.load_stt", return_value=mock_models.stt),
         patch(
-            "vox.app.load_llm", return_value=(mock_models.llm, mock_models.tokenizer)
+            "voxing.app.load_llm", return_value=(mock_models.llm, mock_models.tokenizer)
         ),
-        patch("vox.app.load_tts", return_value=mock_models.tts),
+        patch("voxing.app.load_tts", return_value=mock_models.tts),
     ):
         yield mock_models
 
@@ -49,7 +49,7 @@ def mock_llm_stream():
         for token in ["Hello", " ", "world", "!"]:
             yield token
 
-    with patch("vox.models.llm.generate_streaming", side_effect=fake_generate):
+    with patch("voxing.models.llm.generate_streaming", side_effect=fake_generate):
         yield
 
 
@@ -57,7 +57,7 @@ def mock_llm_stream():
 def mock_audio_record():
     """Mock audio recording to return fake audio data."""
     fake_audio = np.zeros(16000, dtype=np.float32)
-    with patch("vox.audio.record", new_callable=AsyncMock, return_value=fake_audio):
+    with patch("voxing.audio.record", new_callable=AsyncMock, return_value=fake_audio):
         yield fake_audio
 
 
@@ -65,7 +65,7 @@ def mock_audio_record():
 def mock_stt_transcribe():
     """Mock STT transcription to return fixed text."""
     with patch(
-        "vox.models.stt.transcribe",
+        "voxing.models.stt.transcribe",
         new_callable=AsyncMock,
         return_value="What is the weather?",
     ):

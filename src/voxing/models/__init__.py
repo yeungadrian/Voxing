@@ -14,7 +14,7 @@ from mlx_audio.tts.utils import load_model as load_tts_model
 from mlx_lm import load
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from vox.config import settings
+from voxing.config import settings
 
 for _name in ("mlx", "mlx_lm", "mlx_audio"):
     logging.getLogger(_name).setLevel(logging.ERROR)
