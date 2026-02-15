@@ -135,108 +135,36 @@ ModelSelector {
 }
 
 #model-dialog {
-    width: 70;
+    width: 60;
     height: auto;
     max-height: 80%;
     background: $background;
     padding: 1 2;
 }
 
-#model-tabs {
+#model-list {
     height: auto;
-    background: $background;
-}
-
-#model-tabs ContentSwitcher {
-    height: auto;
-}
-
-#model-tabs TabPane {
-    height: auto;
-    padding: 1 1;
-    background: $background;
-}
-
-#model-tabs Tabs {
-    background: $background;
-}
-
-#model-tabs Tab {
-    color: $panel;
-    background: $background;
-}
-
-#model-tabs Tab.-active {
-    color: $primary;
-    text-style: bold;
-}
-
-#model-tabs Underline {
-    display: none;
-}
-
-RadioSet {
+    max-height: 30;
     background: transparent;
-    height: auto;
-    width: 100%;
-}
-
-RadioButton:focus {
-    background: transparent;
-}
-RadioButton:focus .toggle--button {
-    color: $primary;
-    background: transparent;
-}
-RadioButton:focus .toggle--label {
-    color: $primary;
-}
-
-RadioSet:focus > RadioButton.-selected > .toggle--label {
-    background: transparent !important;
-    color: $primary;
-    text-style: bold;
-}
-
-RadioSet:blur > RadioButton.-selected > .toggle--label {
-    background: transparent !important;
-    color: $primary;
-}
-
-RadioButton {
-    background: transparent;
-    color: #c0caf5;
     padding: 0 1;
-    height: auto;
 }
 
-RadioButton .toggle--button {
+.model-header {
     color: $panel;
-    background: transparent;
-}
-
-RadioButton:hover {
-    background: transparent;
-}
-
-RadioButton:focus {
-    background: transparent;
-}
-
-RadioButton.-selected {
-    background: transparent;
-}
-
-RadioButton.model-loaded .toggle--button {
-    color: $success;
-    background: transparent;
-}
-
-RadioButton.model-loaded .toggle--label {
-    color: #c0caf5;
-}
-
-RadioButton.model-loaded.-selected .toggle--label {
-    color: $primary;
     text-style: bold;
+    padding: 1 0 0 0;
+}
+
+.model-header:first-child {
+    padding: 0 0 0 0;
+}
+
+ModelItem {
+    background: transparent;
+    height: auto;
+    padding: 0 1;
+}
+
+ModelItem:focus {
+    background: transparent;
 }
