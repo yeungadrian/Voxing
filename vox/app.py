@@ -14,7 +14,7 @@ from textual.css.query import NoMatches
 from textual.events import Key
 from textual.reactive import reactive
 from textual.timer import Timer
-from textual.widgets import Footer, Label, TextArea
+from textual.widgets import Footer, Label
 from textual.worker import Worker
 
 from vox import audio as audio_mod
@@ -25,8 +25,9 @@ from vox.models import stt as stt_mod
 from vox.models import tts as tts_mod
 from vox.models.llm import ChatMessage
 from vox.state import AppState, InteractionStats
-from vox.themes import PALETTE_1, PALETTE_4, TOKYO_NIGHT
+from vox.themes import FOREGROUND, PALETTE_1, TOKYO_NIGHT
 from vox.widgets import (
+    ChatInput,
     ConversationLog,
     MetricsPanel,
     ModelSelection,
@@ -79,7 +80,7 @@ class VoxApp(App):
 
         with Vertical(id="bottom-section"), Container(id="input-container"):
             yield Label(id="command-hint", classes="hidden")
-            yield TextArea(id="user-input")
+            yield ChatInput(id="user-input")
 
         yield Footer()
 
@@ -87,7 +88,7 @@ class VoxApp(App):
         """Called when app is mounted."""
         self.design = TOKYO_NIGHT
 
-        text_area = self.query_one("#user-input", TextArea)
+        text_area = self.query_one("#user-input", ChatInput)
         text_area.focus()
         text_area.show_line_numbers = False
         text_area.disabled = True
@@ -116,7 +117,7 @@ class VoxApp(App):
 
         self.models = Models(stt=stt, llm=llm, tts=tts, tokenizer=tokenizer)
 
-        text_area = self.query_one("#user-input", TextArea)
+        text_area = self.query_one("#user-input", ChatInput)
         text_area.disabled = False
         text_area.focus()
         self.state = AppState.READY
@@ -145,7 +146,7 @@ class VoxApp(App):
         if event.key != "tab":
             return
 
-        text_area = self.query_one("#user-input", TextArea)
+        text_area = self.query_one("#user-input", ChatInput)
         text = text_area.text.strip()
 
         if not text.startswith("/"):
@@ -163,27 +164,28 @@ class VoxApp(App):
         text_area.clear()
         text_area.insert(replacement)
 
-    @on(TextArea.Changed)
-    def on_text_area_changed(self, event: TextArea.Changed) -> None:
-        """Handle text changes and command hints."""
-        text_area = event.text_area
-        text = text_area.text
+    @on(ChatInput.Changed)
+    def on_chat_input_changed(self, event: ChatInput.Changed) -> None:
+        """Update command hints when text changes."""
+        self._update_command_hints(event.text_area.text)
 
-        self._update_command_hints(text)
-
-        if text.endswith("\n") and not self.is_processing:
-            user_input = text[:-1].strip()
-            if user_input:
-                text_area.clear()
-                self._hide_command_hints()
-                self._active_worker = self.run_worker(self._process_input(user_input))
+    @on(ChatInput.Submitted)
+    def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
+        """Handle input submission."""
+        if self.is_processing:
+            return
+        user_input = event.value.strip()
+        if user_input:
+            event.chat_input.clear()
+            self._hide_command_hints()
+            self._active_worker = self.run_worker(self._process_input(user_input))
 
     def _update_command_hints(self, text: str) -> None:
         """Update command hints based on current input."""
         hint_label = self.query_one("#command-hint", Label)
+        typed = text.strip().lower()
 
-        if text.startswith("/") and not text.endswith("\n"):
-            typed = text.strip().lower()
+        if typed.startswith("/"):
             matches = [cmd for cmd in COMMANDS if cmd.startswith(typed)]
 
             if matches:
@@ -191,8 +193,8 @@ class VoxApp(App):
                 for i, cmd in enumerate(matches):
                     if i > 0:
                         hint_text.append("\n")
-                    hint_text.append(cmd, style=f"bold {PALETTE_4}")
-                    hint_text.append(f" {COMMAND_DESCRIPTIONS[cmd]}", style=PALETTE_4)
+                    hint_text.append(cmd, style=f"bold {FOREGROUND}")
+                    hint_text.append(f" {COMMAND_DESCRIPTIONS[cmd]}", style=FOREGROUND)
                 hint_label.update(hint_text)
                 hint_label.remove_class("hidden")
             else:
@@ -384,7 +386,7 @@ class VoxApp(App):
 
         self.state = AppState.READY
         if full_text.strip():
-            text_area = self.query_one("#user-input", TextArea)
+            text_area = self.query_one("#user-input", ChatInput)
             text_area.clear()
             text_area.insert(full_text.strip())
             self.copy_to_clipboard(full_text.strip())
@@ -446,7 +448,7 @@ class VoxApp(App):
         """Reload changed models in the background."""
         loop = asyncio.get_running_loop()
         status_panel = self.query_one("#status-panel", StatusPanel)
-        text_area = self.query_one("#user-input", TextArea)
+        text_area = self.query_one("#user-input", ChatInput)
         text_area.disabled = True
         self.state = AppState.LOADING
 

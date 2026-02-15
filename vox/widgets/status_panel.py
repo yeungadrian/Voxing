@@ -6,7 +6,7 @@ from textual.timer import Timer
 from textual.widgets import Static
 
 from vox.state import AppState
-from vox.themes import FOREGROUND, PALETTE_1, PALETTE_3, PALETTE_4, PALETTE_5
+from vox.themes import FOREGROUND, PALETTE_1, PALETTE_3, PALETTE_4, PALETTE_5, PALETTE_6
 
 
 class StatusPanel(Static):
@@ -71,9 +71,7 @@ class StatusPanel(Static):
         content.append("Vox", style=PALETTE_4)
         content.append("  •  ")
 
-        if self.current_state == AppState.READY:
-            content.append("● ", style=self._get_state_color())
-        else:
+        if self.current_state != AppState.READY:
             spinner = self.SPINNER_FRAMES[self._frame_index]
             content.append(f"{spinner} ", style=self._get_state_color())
         content.append(str(self.current_state), style=self._get_state_color())
@@ -82,7 +80,7 @@ class StatusPanel(Static):
             content.append(f"  •  {self.status_message}", style=f"dim {PALETTE_3}")
 
         if self.tts_enabled:
-            content.append("  •  TTS", style=PALETTE_4)
+            content.append("  •  TTS", style=PALETTE_6)
 
         self.update(content)
 

@@ -139,7 +139,6 @@ ModelSelector {
     height: auto;
     max-height: 80%;
     background: $background;
-    border: none;
     padding: 1 2;
 }
 
@@ -172,27 +171,25 @@ ModelSelector {
     text-style: bold;
 }
 
-#model-tabs Tabs:blur Tab {
-    opacity: 0.5;
-}
-
 #model-tabs Underline {
     display: none;
 }
 
 RadioSet {
     background: transparent;
-    border: none;
     height: auto;
     width: 100%;
 }
 
-RadioSet:focus {
-    border: none;
+RadioButton:focus {
+    background: transparent;
 }
-
-RadioSet:blur {
-    opacity: 0.5;
+RadioButton:focus .toggle--button {
+    color: $primary;
+    background: transparent;
+}
+RadioButton:focus .toggle--label {
+    color: $primary;
 }
 
 RadioSet:focus > RadioButton.-selected > .toggle--label {
