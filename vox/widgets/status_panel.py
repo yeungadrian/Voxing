@@ -6,7 +6,7 @@ from textual.timer import Timer
 from textual.widgets import Static
 
 from vox.state import AppState
-from vox.themes import FOREGROUND, PALETTE_2, PALETTE_3, PALETTE_5, PALETTE_6
+from vox.themes import FOREGROUND, PALETTE_1, PALETTE_3, PALETTE_4, PALETTE_5
 
 
 class StatusPanel(Static):
@@ -68,6 +68,9 @@ class StatusPanel(Static):
         """Update the panel display with current state."""
         content = Text()
 
+        content.append("Vox", style=PALETTE_4)
+        content.append("  •  ")
+
         if self.current_state == AppState.READY:
             content.append("● ", style=self._get_state_color())
         else:
@@ -78,9 +81,8 @@ class StatusPanel(Static):
         if self.status_message:
             content.append(f"  •  {self.status_message}", style=f"dim {PALETTE_3}")
 
-        tts_label = "TTS:ON" if self.tts_enabled else "TTS:OFF"
-        tts_style = PALETTE_5 if self.tts_enabled else "dim"
-        content.append(f"  •  {tts_label}", style=tts_style)
+        if self.tts_enabled:
+            content.append("  •  TTS", style=PALETTE_4)
 
         self.update(content)
 
@@ -92,13 +94,13 @@ class StatusPanel(Static):
     def _get_state_color(self) -> str:
         """Get the color for the current state."""
         color_map = {
-            AppState.LOADING: PALETTE_3,  # #e0af68 (yellow)
-            AppState.READY: PALETTE_2,  # #9ece6a (green)
-            AppState.RECORDING: PALETTE_3,  # #e0af68 (yellow)
-            AppState.TRANSCRIBING: PALETTE_6,  # #7dcfff (cyan)
-            AppState.THINKING: PALETTE_3,  # #e0af68 (yellow)
-            AppState.SYNTHESIZING: PALETTE_6,  # #7dcfff (cyan)
-            AppState.SPEAKING: PALETTE_5,  # #bb9af7 (magenta)
+            AppState.LOADING: PALETTE_3,  # #e0af68 (yellow) - processing
+            AppState.READY: PALETTE_5,  # #bb9af7 (purple) - idle
+            AppState.RECORDING: PALETTE_1,  # #f7768e (red) - active I/O
+            AppState.TRANSCRIBING: PALETTE_3,  # #e0af68 (yellow) - processing
+            AppState.THINKING: PALETTE_3,  # #e0af68 (yellow) - processing
+            AppState.SYNTHESIZING: PALETTE_3,  # #e0af68 (yellow) - processing
+            AppState.SPEAKING: PALETTE_1,  # #f7768e (red) - active I/O
         }
         return color_map.get(self.current_state, FOREGROUND)
 
