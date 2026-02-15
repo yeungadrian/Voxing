@@ -46,9 +46,11 @@ Screen {
 
 /* Status bar */
 #status-bar {
+    dock: top;
     height: auto;
     background: transparent;
     border-top: solid $primary 20%;
+    border-bottom: solid $primary 20%;
     padding: 0 1;
     margin: 0 0 0 0;
 }

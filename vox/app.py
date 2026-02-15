@@ -25,7 +25,7 @@ from vox.models import stt as stt_mod
 from vox.models import tts as tts_mod
 from vox.models.llm import ChatMessage
 from vox.state import AppState, InteractionStats
-from vox.themes import PALETTE_1, PALETTE_4, PALETTE_6, PALETTE_8, TOKYO_NIGHT
+from vox.themes import PALETTE_1, PALETTE_4, TOKYO_NIGHT
 from vox.widgets import (
     ConversationLog,
     MetricsPanel,
@@ -43,8 +43,6 @@ COMMAND_DESCRIPTIONS: dict[str, str] = {
     "/exit": "Exit application",
 }
 COMMANDS = list(COMMAND_DESCRIPTIONS)
-
-WELCOME_MESSAGE = "Welcome to Vox! Type a message, /record, or /transcribe."
 
 
 class VoxApp(App):
@@ -73,16 +71,15 @@ class VoxApp(App):
 
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
+        with Horizontal(id="status-bar"):
+            yield StatusPanel(id="status-panel")
+            yield MetricsPanel(id="metrics-panel")
+
         yield ConversationLog(id="conversation-log", wrap=True)
 
-        with Vertical(id="bottom-section"):
-            with Horizontal(id="status-bar"):
-                yield StatusPanel(id="status-panel")
-                yield MetricsPanel(id="metrics-panel")
-
-            with Container(id="input-container"):
-                yield Label(id="command-hint", classes="hidden")
-                yield TextArea(id="user-input")
+        with Vertical(id="bottom-section"), Container(id="input-container"):
+            yield Label(id="command-hint", classes="hidden")
+            yield TextArea(id="user-input")
 
         yield Footer()
 
@@ -123,9 +120,6 @@ class VoxApp(App):
         text_area.disabled = False
         text_area.focus()
         self.state = AppState.READY
-
-        conv_log = self.query_one("#conversation-log", ConversationLog)
-        conv_log.add_system_message(WELCOME_MESSAGE, style=f"bold {PALETTE_6}")
 
     def watch_state(self, new_state: AppState) -> None:
         """Called when state changes."""
@@ -491,7 +485,6 @@ class VoxApp(App):
         self.chat_history.clear()
         conv_log = self.query_one("#conversation-log", ConversationLog)
         conv_log.clear()
-        conv_log.add_system_message(WELCOME_MESSAGE, style=PALETTE_8)
 
         metrics_panel = self.query_one("#metrics-panel", MetricsPanel)
         metrics_panel.clear_metrics()
