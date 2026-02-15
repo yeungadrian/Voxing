@@ -5,6 +5,7 @@ description = "Voice assistant TUI powered by local MLX models"
 readme = "README.md"
 requires-python = "==3.13.*"
 authors = [{ name = "yeungadrian" }]
+license = "MIT"
 dependencies = [
     "langdetect>=1.0.9",
     "mlx-audio[tts]==0.3.1",
