@@ -1849,7 +1849,7 @@ wheels = [
 [[package]]
 name = "vox"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "langdetect" },
     { name = "mlx-audio", extra = ["tts"] },

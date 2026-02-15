@@ -3,7 +3,6 @@
 import contextlib
 import logging
 import os
-import sys
 import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -24,15 +23,22 @@ warnings.filterwarnings("ignore", message=".*deprecated.*")
 
 @contextlib.contextmanager
 def suppress_output() -> Iterator[None]:
-    """Redirect stdout/stderr to devnull."""
-    devnull = Path(os.devnull).open("w")  # noqa: SIM115
-    old_stdout, old_stderr = sys.stdout, sys.stderr
-    sys.stdout, sys.stderr = devnull, devnull
-    try:
-        yield
-    finally:
-        sys.stdout, sys.stderr = old_stdout, old_stderr
-        devnull.close()
+    """Redirect stdout/stderr to devnull at both Python and OS fd level."""
+    with Path(os.devnull).open("w") as devnull:
+        saved_fds = os.dup(1), os.dup(2)
+        os.dup2(devnull.fileno(), 1)
+        os.dup2(devnull.fileno(), 2)
+        try:
+            with (
+                contextlib.redirect_stdout(devnull),
+                contextlib.redirect_stderr(devnull),
+            ):
+                yield
+        finally:
+            os.dup2(saved_fds[0], 1)
+            os.dup2(saved_fds[1], 2)
+            os.close(saved_fds[0])
+            os.close(saved_fds[1])
 
 
 @dataclass(slots=True)
