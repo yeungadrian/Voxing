@@ -1,12 +1,11 @@
 """Model loading and initialization."""
 
 import contextlib
+import io
 import logging
-import os
 import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass
-from pathlib import Path
 
 import mlx.nn as nn
 from mlx_audio.stt import load_model as load_stt_model
@@ -23,22 +22,13 @@ warnings.filterwarnings("ignore", message=".*deprecated.*")
 
 @contextlib.contextmanager
 def suppress_output() -> Iterator[None]:
-    """Redirect stdout/stderr to devnull at both Python and OS fd level."""
-    with Path(os.devnull).open("w") as devnull:
-        saved_fds = os.dup(1), os.dup(2)
-        os.dup2(devnull.fileno(), 1)
-        os.dup2(devnull.fileno(), 2)
-        try:
-            with (
-                contextlib.redirect_stdout(devnull),
-                contextlib.redirect_stderr(devnull),
-            ):
-                yield
-        finally:
-            os.dup2(saved_fds[0], 1)
-            os.dup2(saved_fds[1], 2)
-            os.close(saved_fds[0])
-            os.close(saved_fds[1])
+    """Suppress Python-level stdout/stderr."""
+    devnull = io.StringIO()
+    with (
+        contextlib.redirect_stdout(devnull),
+        contextlib.redirect_stderr(devnull),
+    ):
+        yield
 
 
 @dataclass(slots=True)
