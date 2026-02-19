@@ -18,6 +18,7 @@ dependencies = [
     "mlx-audio[tts]==0.3.1",
     "mlx-lm>=0.30.5",
     "pip>=26.0.1",
+    "psutil>=7.2.2",
     "pydantic-settings>=2.12.0",
     "rich>=14.3.1",
     "sounddevice>=0.5.3",

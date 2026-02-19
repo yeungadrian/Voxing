@@ -37,6 +37,7 @@ def mock_model_loading(mock_models):
             "voxing.app.load_llm", return_value=(mock_models.llm, mock_models.tokenizer)
         ),
         patch("voxing.app.load_tts", return_value=mock_models.tts),
+        patch("voxing.widgets.metrics_panel._get_memory_mb", return_value=256),
     ):
         yield mock_models
 

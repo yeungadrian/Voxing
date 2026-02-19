@@ -1,10 +1,18 @@
 """Metrics panel widget for displaying performance statistics."""
 
+import psutil
 from rich.text import Text
 from textual.widgets import Static
 
 from voxing.state import InteractionStats
 from voxing.themes import FOREGROUND
+
+_process = psutil.Process()
+
+
+def _get_memory_mb() -> int:
+    """Return current RSS in megabytes."""
+    return _process.memory_info().rss // (1024 * 1024)
 
 
 class MetricsPanel(Static):
@@ -22,6 +30,8 @@ class MetricsPanel(Static):
         content = Text()
 
         if self.current_stats is None:
+            content.append("Mem: ", style="dim")
+            content.append(f"{_get_memory_mb()} MB", style=FOREGROUND)
             self.update(content)
             return
         stats = self.current_stats
@@ -47,6 +57,8 @@ class MetricsPanel(Static):
                 style=FOREGROUND,
             )
 
+        content.append("  Mem: ", style="dim")
+        content.append(f"{_get_memory_mb()} MB", style=FOREGROUND)
         self.update(content)
 
     def clear_metrics(self) -> None:
@@ -57,3 +69,4 @@ class MetricsPanel(Static):
     def on_mount(self) -> None:
         """Called when widget is mounted."""
         self.update_display()
+        self.set_interval(3.0, self.update_display)
