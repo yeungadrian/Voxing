@@ -41,4 +41,5 @@ class PerfStats(Static):
 
     def clear_stats(self) -> None:
         """Clear the displayed stats."""
+        self.current_stats = None
         self.update("")

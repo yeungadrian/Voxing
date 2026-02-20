@@ -1,6 +1,7 @@
 """Audio recording and playback via sounddevice."""
 
 import asyncio
+import threading
 from collections.abc import Callable, Iterable
 from functools import partial
 
@@ -27,8 +28,9 @@ def _normalize_audio(audio: np.ndarray) -> np.ndarray:
 def _record_blocking(
     silence_duration: float = 0.7,
     max_duration: float = 10.0,
+    stop_event: threading.Event | None = None,
 ) -> np.ndarray | None:
-    """Record audio until silence is detected."""
+    """Record audio until silence is detected or stop_event is set."""
     chunk_duration = 0.1
     chunk_samples = int(settings.audio_sample_rate * chunk_duration)
     silence_chunks_needed = int(silence_duration / chunk_duration)
@@ -42,6 +44,9 @@ def _record_blocking(
         samplerate=settings.audio_sample_rate, channels=1, dtype=np.float32
     ) as stream:
         while len(audio_chunks) < max_chunks:
+            if stop_event is not None and stop_event.is_set():
+                break
+
             chunk, _ = stream.read(chunk_samples)
             has_voice = _rms(chunk) > settings.silence_threshold
 
@@ -87,19 +92,35 @@ def _play_stream(
             stream.write(_normalize_audio(audio))
 
 
-async def record() -> np.ndarray | None:
+async def record(
+    stop_event: threading.Event | None = None,
+) -> np.ndarray | None:
     """Record a short voice command."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
-        None, partial(_record_blocking, silence_duration=0.7, max_duration=10.0)
+        None,
+        partial(
+            _record_blocking,
+            silence_duration=0.7,
+            max_duration=10.0,
+            stop_event=stop_event,
+        ),
     )
 
 
-async def record_long() -> np.ndarray | None:
+async def record_long(
+    stop_event: threading.Event | None = None,
+) -> np.ndarray | None:
     """Record extended speech for transcription."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
-        None, partial(_record_blocking, silence_duration=3.0, max_duration=180.0)
+        None,
+        partial(
+            _record_blocking,
+            silence_duration=3.0,
+            max_duration=180.0,
+            stop_event=stop_event,
+        ),
     )
 
 

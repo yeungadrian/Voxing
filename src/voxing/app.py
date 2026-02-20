@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import threading
 import time
 from os.path import commonprefix
 
@@ -70,6 +71,7 @@ class VoxingApp(App):
         self._active_worker: Worker[None] | None = None
         self._esc_pending: bool = False
         self._esc_timer: Timer | None = None
+        self._stop_recording: threading.Event = threading.Event()
 
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
@@ -144,6 +146,12 @@ class VoxingApp(App):
                 self._esc_pending = True
                 self._show_status("Press ESC again to cancel", timeout=2.0)
                 self._esc_timer = self.set_timer(2.0, self._reset_esc_pending)
+            return
+
+        if event.key == "enter" and self.state == AppState.RECORDING:
+            event.prevent_default()
+            event.stop()
+            self._stop_recording.set()
             return
 
         if event.key != "tab":
@@ -347,8 +355,13 @@ class VoxingApp(App):
     async def _run_record_pipeline(self) -> None:
         """Record audio, transcribe, then run LLM pipeline."""
         self.state = AppState.RECORDING
+        self._stop_recording.clear()
+        self._show_sticky_status("Enter to stop")
 
-        audio_data = await audio_mod.record()
+        audio_data = await audio_mod.record(stop_event=self._stop_recording)
+
+        status_panel = self.query_one("#status-panel", StatusPanel)
+        status_panel.clear_status_message()
 
         if audio_data is None:
             self.state = AppState.READY
@@ -372,9 +385,13 @@ class VoxingApp(App):
     async def _run_transcribe(self) -> None:
         """Record extended audio and stream transcription."""
         self.state = AppState.RECORDING
-        self._show_sticky_status("Transcribe: up to 3 min")
+        self._stop_recording.clear()
+        self._show_sticky_status("Enter to stop")
 
-        audio_data = await audio_mod.record_long()
+        audio_data = await audio_mod.record_long(stop_event=self._stop_recording)
+
+        status_panel = self.query_one("#status-panel", StatusPanel)
+        status_panel.clear_status_message()
 
         if audio_data is None:
             self.state = AppState.READY
