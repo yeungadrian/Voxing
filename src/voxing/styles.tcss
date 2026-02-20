@@ -65,6 +65,15 @@ Screen {
     color: #a9b1d6;
 }
 
+/* Performance stats above input */
+#perf-stats {
+    height: auto;
+    color: $panel;
+    background: transparent;
+    padding: 0 2;
+    text-align: right;
+}
+
 /* Input container */
 #input-container {
     height: auto;

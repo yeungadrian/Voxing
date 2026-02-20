@@ -5,8 +5,8 @@ from voxing.state import AppState
 from voxing.widgets import (
     ChatInput,
     ConversationLog,
-    MetricsPanel,
     ModelSelector,
+    PerfStats,
     StatusPanel,
 )
 
@@ -162,22 +162,22 @@ async def test_unknown_command_shows_error(mock_model_loading):
 
 
 async def test_metrics_update_after_llm_generation(mock_model_loading, mock_llm_stream):
-    """Metrics panel updates after LLM generation."""
+    """Perf stats update after LLM generation."""
     app = VoxingApp()
     async with app.run_test() as pilot:
         await _wait_for_ready(app)
 
-        metrics_panel = app.query_one("#metrics-panel", MetricsPanel)
-        assert metrics_panel.current_stats is None
+        perf_stats = app.query_one("#perf-stats", PerfStats)
+        assert perf_stats.current_stats is None
 
         text_area = app.query_one("#user-input", ChatInput)
         text_area.insert("Test query")
         await pilot.press("enter")
         await _wait_for_ready(app)
 
-        assert metrics_panel.current_stats is not None
-        assert metrics_panel.current_stats.tokens == 4
-        assert metrics_panel.current_stats.tokens_per_sec > 0
+        assert perf_stats.current_stats is not None
+        assert perf_stats.current_stats.tokens == 4
+        assert perf_stats.current_stats.tokens_per_sec > 0
 
 
 async def test_record_pipeline_runs_full_flow(

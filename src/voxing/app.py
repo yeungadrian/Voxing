@@ -25,13 +25,14 @@ from voxing.models import stt as stt_mod
 from voxing.models import tts as tts_mod
 from voxing.models.llm import ChatMessage
 from voxing.state import AppState, InteractionStats
-from voxing.themes import FOREGROUND, PALETTE_1, TOKYO_NIGHT
+from voxing.themes import PALETTE_1, PALETTE_8, TOKYO_NIGHT
 from voxing.widgets import (
     ChatInput,
     ConversationLog,
     MetricsPanel,
     ModelSelection,
     ModelSelector,
+    PerfStats,
     StatusPanel,
 )
 
@@ -78,9 +79,11 @@ class VoxingApp(App):
 
         yield ConversationLog(id="conversation-log", wrap=True)
 
-        with Vertical(id="bottom-section"), Container(id="input-container"):
-            yield Label(id="command-hint", classes="hidden")
-            yield ChatInput(id="user-input")
+        with Vertical(id="bottom-section"):
+            yield PerfStats(id="perf-stats")
+            with Container(id="input-container"):
+                yield Label(id="command-hint", classes="hidden")
+                yield ChatInput(id="user-input")
 
         yield Footer()
 
@@ -193,8 +196,8 @@ class VoxingApp(App):
                 for i, cmd in enumerate(matches):
                     if i > 0:
                         hint_text.append("\n")
-                    hint_text.append(cmd, style=f"bold {FOREGROUND}")
-                    hint_text.append(f" {COMMAND_DESCRIPTIONS[cmd]}", style=FOREGROUND)
+                    hint_text.append(cmd, style=f"bold {PALETTE_8}")
+                    hint_text.append(f" {COMMAND_DESCRIPTIONS[cmd]}", style=PALETTE_8)
                 hint_label.update(hint_text)
                 hint_label.remove_class("hidden")
             else:
@@ -249,7 +252,7 @@ class VoxingApp(App):
     ) -> None:
         """Run LLM generation on text input."""
         conv_log = self.query_one("#conversation-log", ConversationLog)
-        metrics_panel = self.query_one("#metrics-panel", MetricsPanel)
+        perf_stats = self.query_one("#perf-stats", PerfStats)
 
         self.state = AppState.THINKING
 
@@ -308,7 +311,7 @@ class VoxingApp(App):
             total_conversation_tokens=total_tokens,
             max_tokens=settings.llm_max_tokens,
         )
-        metrics_panel.update_metrics(stats)
+        perf_stats.update_stats(stats)
         self.state = AppState.READY
 
     def _show_status(self, message: str, timeout: float = 3.0) -> None:
@@ -369,7 +372,7 @@ class VoxingApp(App):
     async def _run_transcribe(self) -> None:
         """Record extended audio and stream transcription."""
         self.state = AppState.RECORDING
-        self._show_sticky_status("Transcribe mode: recording up to 3 min...")
+        self._show_sticky_status("Transcribe: up to 3 min")
 
         audio_data = await audio_mod.record_long()
 
@@ -390,7 +393,7 @@ class VoxingApp(App):
             text_area.clear()
             text_area.insert(full_text.strip())
             self.copy_to_clipboard(full_text.strip())
-            self._show_status("Transcribed to input and copied to clipboard.")
+            self._show_status("Transcribed and copied")
         else:
             self._show_status("Could not transcribe audio.")
 
@@ -488,5 +491,5 @@ class VoxingApp(App):
         conv_log = self.query_one("#conversation-log", ConversationLog)
         conv_log.clear()
 
-        metrics_panel = self.query_one("#metrics-panel", MetricsPanel)
-        metrics_panel.clear_metrics()
+        perf_stats = self.query_one("#perf-stats", PerfStats)
+        perf_stats.clear_stats()
