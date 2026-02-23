@@ -14,18 +14,23 @@ classifiers = [
     "Operating System :: MacOS",
 ]
 dependencies = [
-    "langdetect>=1.0.9",
-    "mlx-lm>=0.30.5",
-    "psutil>=7.2.2",
-    "pydantic-settings>=2.12.0",
+    "huggingface-hub>=1.4.1",
+    "mlx>=0.30.6",
+    "numpy>=2.4.2",
     "rich>=14.3.1",
     "sounddevice>=0.5.3",
-    "textual>=7.5.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/yeungadrian/Voxing"
 Repository = "https://github.com/yeungadrian/Voxing"
+
+[project.scripts]
+voxing = "voxing.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.10.2,<0.11.0"]
+build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
