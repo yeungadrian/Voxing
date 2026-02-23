@@ -12,10 +12,9 @@ import dataclasses
 import threading
 
 import mlx.core as mx
-import mlx.nn as nn
 import numpy as np
 import sounddevice as sd
-from mlx_audio.stt import load_model
+from parakeet import Model, load_model
 from rich.console import Console
 from rich.live import Live
 from rich.text import Text
@@ -26,7 +25,7 @@ MIN_COMMIT_SECS = 7.5     # minimum audio length before silence can trigger a co
 SILENCE_DURATION = 0.3     # seconds of tail silence that triggers a commit
 MIN_SILENCE_DURATION = 0.05  # minimum silence window near the buffer cap
 SILENCE_THRESHOLD = 0.06   # RMS below this is considered silence
-MAX_BUFFER_SECS = 15      # hard cap — commit regardless of silence
+MAX_BUFFER_SECS = 30      # hard cap — commit regardless of silence
 CHUNK_DURATION = 0.1      # capture granularity (seconds)
 SPECULATIVE_INTERVAL_CHUNKS = 7  # run a speculative pass every N chunks (≈ 0.7 s)
 MODEL_NAME = "mlx-community/parakeet-tdt-0.6b-v3"
@@ -39,7 +38,7 @@ def rms(audio: np.ndarray) -> float:
     return float(np.sqrt(np.mean(audio**2)))
 
 
-def _infer(model: nn.Module, audio: np.ndarray) -> str:
+def _infer(model: Model, audio: np.ndarray) -> str:
     """Run model inference and return stripped text."""
     result = model.generate(mx.array(audio))
     mx.metal.clear_cache()
@@ -179,7 +178,7 @@ def _decode_loop(
     buf: _AudioBuffer,
     state: _State,
     live: Live,
-    model: nn.Module,
+    model: Model,
     stop: threading.Event,
 ) -> None:
     """Speculative-then-commit transcription loop.
@@ -214,7 +213,7 @@ def _decode_loop(
         display(live, state.committed, state.speculative)
 
 
-def run_realtime(model: nn.Module) -> str:
+def run_realtime(model: Model) -> str:
     """Record and transcribe in real time; return full text when Enter is pressed."""
     buf = _AudioBuffer()
     state = _State()
