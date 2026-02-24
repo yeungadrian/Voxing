@@ -17,6 +17,7 @@ dependencies = [
     "huggingface-hub>=1.4.1",
     "mlx>=0.30.6",
     "numpy>=2.4.2",
+    "pydantic-settings>=2.13.1",
     "rich>=14.3.1",
     "sounddevice>=0.5.3",
 ]

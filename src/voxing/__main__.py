@@ -12,13 +12,16 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 
+from voxing.config import Settings
 from voxing.parakeet import load_model
-from voxing.stt import MODEL_NAME, RealtimeTranscriber
+from voxing.stt import RealtimeTranscriber
 
 console = Console()
 
 
 def main() -> None:
+    settings = Settings()
+
     with Progress(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
@@ -35,14 +38,14 @@ def main() -> None:
                 task_ids[desc] = progress.add_task(desc, total=total)
             progress.advance(task_ids[desc], advance)
 
-        model = load_model(MODEL_NAME, on_progress=on_progress)
+        model = load_model(settings.model_id, on_progress=on_progress)
     console.print("Model loaded.")
 
     try:
         while True:
             console.input("\nPress Enter to start real-time recording... ")
 
-            with RealtimeTranscriber(model) as transcriber:
+            with RealtimeTranscriber(model, settings) as transcriber:
 
                 def _wait_for_enter(_stop: RealtimeTranscriber = transcriber) -> None:
                     input()

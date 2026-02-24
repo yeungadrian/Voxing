@@ -6,28 +6,8 @@ import mlx.core as mx
 import numpy as np
 import sounddevice as sd
 
+from voxing.config import Settings
 from voxing.parakeet import ParakeetTDT
-
-SAMPLE_RATE = 16_000
-MIN_AUDIO_SECS = 1.5
-SILENCE_DURATION = 3.0
-SILENCE_THRESHOLD = 0.01
-MAX_BUFFER_SECS = 45
-CHUNK_DURATION = 0.1
-DRAFT_INTERVAL_SECS = 0.5
-
-CHUNK_SAMPLES = int(SAMPLE_RATE * CHUNK_DURATION)
-MIN_AUDIO_SAMPLES = int(SAMPLE_RATE * MIN_AUDIO_SECS)
-MAX_BUFFER_SAMPLES = SAMPLE_RATE * MAX_BUFFER_SECS
-SILENCE_SAMPLES = int(SAMPLE_RATE * SILENCE_DURATION)
-DRAFT_INTERVAL_CHUNKS = int(DRAFT_INTERVAL_SECS / CHUNK_DURATION)
-
-MODEL_NAME = "mlx-community/parakeet-tdt-0.6b-v3"
-
-
-def _detect_silence(audio: np.ndarray) -> bool:
-    """Root-mean-square energy of an audio array."""
-    return np.sqrt(np.mean(audio**2)) < SILENCE_THRESHOLD
 
 
 def _transcribe(model: ParakeetTDT, audio: np.ndarray) -> str:
@@ -37,32 +17,31 @@ def _transcribe(model: ParakeetTDT, audio: np.ndarray) -> str:
     return result.text.strip()
 
 
-def is_utterance_complete(audio: np.ndarray) -> bool:
-    """True if silence detected after sufficient speech, or buffer cap exceeded."""
-    if len(audio) >= MAX_BUFFER_SAMPLES:
-        return True
-    if len(audio) < MIN_AUDIO_SAMPLES:
-        return False
-    if len(audio) >= SILENCE_SAMPLES:
-        tail = audio[-SILENCE_SAMPLES:]
-        return _detect_silence(tail)
-    return False
-
-
 def _stream_mic_chunks(
-    chunk_queue: queue.Queue[np.ndarray | None], stop_event: threading.Event
+    chunk_queue: queue.Queue[np.ndarray | None],
+    stop_event: threading.Event,
+    sample_rate: int,
+    chunk_samples: int,
 ) -> None:
     """Read audio from mic; put None sentinel when stop is set."""
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype=np.float32) as stream:
+    with sd.InputStream(samplerate=sample_rate, channels=1, dtype=np.float32) as stream:
         while not stop_event.is_set():
-            chunk, _ = stream.read(CHUNK_SAMPLES)
+            chunk, _ = stream.read(chunk_samples)
             chunk_queue.put(chunk[:, 0])
     chunk_queue.put(None)
 
 
 class RealtimeTranscriber:
-    def __init__(self, model: ParakeetTDT) -> None:
+    def __init__(self, model: ParakeetTDT, settings: Settings) -> None:
         self._model = model
+        self._settings = settings
+        self._chunk_samples = int(settings.sample_rate * settings.chunk_duration)
+        self._min_audio_samples = int(settings.sample_rate * settings.min_audio_secs)
+        self._max_buffer_samples = int(settings.sample_rate * settings.max_buffer_secs)
+        self._silence_samples = int(settings.sample_rate * settings.silence_duration)
+        self._draft_interval_chunks = int(
+            settings.draft_interval_secs / settings.chunk_duration
+        )
         self._chunk_queue: queue.Queue[np.ndarray | None] = queue.Queue()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -71,9 +50,30 @@ class RealtimeTranscriber:
         """Signal the capture thread to stop."""
         self._stop_event.set()
 
+    def _detect_silence(self, audio: np.ndarray) -> bool:
+        """Return True if RMS energy of audio is below silence threshold."""
+        return bool(np.sqrt(np.mean(audio**2)) < self._settings.silence_threshold)
+
+    def _is_utterance_complete(self, audio: np.ndarray) -> bool:
+        """True if silence detected after sufficient speech, or buffer cap exceeded."""
+        if len(audio) >= self._max_buffer_samples:
+            return True
+        if len(audio) < self._min_audio_samples:
+            return False
+        if len(audio) >= self._silence_samples:
+            tail = audio[-self._silence_samples :]
+            return self._detect_silence(tail)
+        return False
+
     def __enter__(self) -> "RealtimeTranscriber":
         self._thread = threading.Thread(
-            target=_stream_mic_chunks, args=(self._chunk_queue, self._stop_event)
+            target=_stream_mic_chunks,
+            args=(
+                self._chunk_queue,
+                self._stop_event,
+                self._settings.sample_rate,
+                self._chunk_samples,
+            ),
         )
         self._thread.start()
         return self
@@ -96,18 +96,18 @@ class RealtimeTranscriber:
             chunks_since_decode += 1
 
             # Accumulate until minimum audio available
-            if buffer_samples < MIN_AUDIO_SAMPLES:
+            if buffer_samples < self._min_audio_samples:
                 continue
 
             # Decode when interval elapsed or buffer full
-            buffer_full = buffer_samples >= MAX_BUFFER_SAMPLES
-            if not buffer_full and chunks_since_decode < DRAFT_INTERVAL_CHUNKS:
+            buffer_full = buffer_samples >= self._max_buffer_samples
+            if not buffer_full and chunks_since_decode < self._draft_interval_chunks:
                 continue
 
             audio = np.concatenate(buffer)
             chunks_since_decode = 0
 
-            if is_utterance_complete(audio):
+            if self._is_utterance_complete(audio):
                 # Confirm: finalize text, reset buffer
                 # TODO: scan backward for best silence window to avoid mid-word splits
                 text = _transcribe(self._model, audio)
@@ -125,7 +125,7 @@ class RealtimeTranscriber:
         # Flush remaining audio on stop
         if buffer:
             audio = np.concatenate(buffer)
-            if len(audio) >= MIN_AUDIO_SAMPLES:
+            if len(audio) >= self._min_audio_samples:
                 text = _transcribe(self._model, audio)
                 if text:
                     confirmed = f"{confirmed} {text}".strip()
