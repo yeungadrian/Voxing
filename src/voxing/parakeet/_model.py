@@ -1,13 +1,17 @@
 import dataclasses
+import io
 import json
 import types as _types
 import typing
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import mlx.core as mx
 import mlx.nn as nn
+import tqdm
 from huggingface_hub import snapshot_download
+from huggingface_hub.errors import LocalEntryNotFoundError
 
 from voxing.parakeet._alignment import (
     AlignedResult,
@@ -247,6 +251,56 @@ class ParakeetTDT(Model):
         return results
 
 
+DownloadProgressCallback = Callable[[str, int, int | None], None]
+
+
+def _make_tqdm_class(callback: DownloadProgressCallback) -> type[tqdm.tqdm]:
+    """Return a tqdm subclass that routes byte progress to callback."""
+
+    class _CallbackTqdm(tqdm.tqdm):
+        """tqdm bridge that forwards progress to a callback without terminal output."""
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self._desc: str = str(kwargs.get("desc", ""))
+            self._total: int | None = kwargs.get("total")  # type: ignore[assignment]
+            kwargs["file"] = io.StringIO()
+            kwargs["disable"] = True
+            super().__init__(*args, **kwargs)
+
+        def update(self, n: int = 1) -> bool | None:
+            callback(self._desc, n, self._total)
+            return super().update(n)
+
+    return _CallbackTqdm
+
+
+def _resolve_model_path(
+    model_id: str,
+    tqdm_class: type[tqdm.tqdm] | None,
+) -> Path:
+    """Resolve model directory using cache-first with network fallback."""
+    try:
+        return Path(
+            str(
+                snapshot_download(
+                    model_id,
+                    allow_patterns=["*.json", "*.safetensors"],
+                    local_files_only=True,
+                )
+            )
+        )
+    except LocalEntryNotFoundError:
+        return Path(
+            str(
+                snapshot_download(  # type: ignore[no-matching-overload]
+                    model_id,
+                    allow_patterns=["*.json", "*.safetensors"],
+                    tqdm_class=tqdm_class,
+                )
+            )
+        )
+
+
 def _build_model(config: dict) -> ParakeetTDT:
     """Instantiate a ParakeetTDT model from a config dict."""
     return ParakeetTDT(from_dict(ParakeetTDTArgs, config))
@@ -255,15 +309,11 @@ def _build_model(config: dict) -> ParakeetTDT:
 def load_model(
     model_id: str,
     *,
-    tqdm_class: type | None = None,
+    on_progress: DownloadProgressCallback | None = None,
 ) -> ParakeetTDT:
     """Download (if needed) and load a Parakeet model from HuggingFace Hub."""
-    downloaded = snapshot_download(  # type: ignore[no-matching-overload]
-        model_id,
-        allow_patterns=["*.json", "*.safetensors"],
-        tqdm_class=tqdm_class,
-    )
-    model_path = Path(str(downloaded))
+    tqdm_class = _make_tqdm_class(on_progress) if on_progress is not None else None
+    model_path = _resolve_model_path(model_id, tqdm_class)
     config = json.loads((model_path / "config.json").read_text())
     model = _build_model(config)
 

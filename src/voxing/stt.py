@@ -9,25 +9,25 @@ import sounddevice as sd
 from voxing.parakeet import ParakeetTDT
 
 SAMPLE_RATE = 16_000
-MIN_AUDIO_SECS = 1.0
-SILENCE_DURATION = 1.5
+MIN_AUDIO_SECS = 1.5
+SILENCE_DURATION = 3.0
 SILENCE_THRESHOLD = 0.01
-MAX_BUFFER_SECS = 30
+MAX_BUFFER_SECS = 45
 CHUNK_DURATION = 0.1
-SPECULATIVE_INTERVAL_SECS = 0.7
+DRAFT_INTERVAL_SECS = 0.5
 
 CHUNK_SAMPLES = int(SAMPLE_RATE * CHUNK_DURATION)
 MIN_AUDIO_SAMPLES = int(SAMPLE_RATE * MIN_AUDIO_SECS)
 MAX_BUFFER_SAMPLES = SAMPLE_RATE * MAX_BUFFER_SECS
 SILENCE_SAMPLES = int(SAMPLE_RATE * SILENCE_DURATION)
-SPECULATIVE_INTERVAL_CHUNKS = int(SPECULATIVE_INTERVAL_SECS / CHUNK_DURATION)
+DRAFT_INTERVAL_CHUNKS = int(DRAFT_INTERVAL_SECS / CHUNK_DURATION)
 
 MODEL_NAME = "mlx-community/parakeet-tdt-0.6b-v3"
 
 
-def _rms(audio: np.ndarray) -> float:
+def _detect_silence(audio: np.ndarray) -> bool:
     """Root-mean-square energy of an audio array."""
-    return float(np.sqrt(np.mean(audio**2)))
+    return np.sqrt(np.mean(audio**2)) < SILENCE_THRESHOLD
 
 
 def _transcribe(model: ParakeetTDT, audio: np.ndarray) -> str:
@@ -37,82 +37,97 @@ def _transcribe(model: ParakeetTDT, audio: np.ndarray) -> str:
     return result.text.strip()
 
 
-def should_commit(audio: np.ndarray) -> bool:
+def is_utterance_complete(audio: np.ndarray) -> bool:
     """True if silence detected after sufficient speech, or buffer cap exceeded."""
     if len(audio) >= MAX_BUFFER_SAMPLES:
         return True
     if len(audio) < MIN_AUDIO_SAMPLES:
         return False
-    tail = audio[-SILENCE_SAMPLES:]
-    return _rms(tail) < SILENCE_THRESHOLD
+    if len(audio) >= SILENCE_SAMPLES:
+        tail = audio[-SILENCE_SAMPLES:]
+        return _detect_silence(tail)
+    return False
 
 
-def _capture_loop(
-    chunk_q: queue.Queue[np.ndarray | None], stop: threading.Event
+def _stream_mic_chunks(
+    chunk_queue: queue.Queue[np.ndarray | None], stop_event: threading.Event
 ) -> None:
     """Read audio from mic; put None sentinel when stop is set."""
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype=np.float32) as stream:
-        while not stop.is_set():
+        while not stop_event.is_set():
             chunk, _ = stream.read(CHUNK_SAMPLES)
-            chunk_q.put(chunk[:, 0])
-    chunk_q.put(None)
+            chunk_queue.put(chunk[:, 0])
+    chunk_queue.put(None)
 
 
-def run_realtime(
-    model: ParakeetTDT,
-    *,
-    stop_event: threading.Event,
-) -> Iterator[str]:
-    """Record and transcribe in real time; yields current text on each update."""
-    chunk_q: queue.Queue[np.ndarray | None] = queue.Queue()
-    threading.Thread(
-        target=_capture_loop, args=(chunk_q, stop_event), daemon=True
-    ).start()
+class RealtimeTranscriber:
+    def __init__(self, model: ParakeetTDT) -> None:
+        self._model = model
+        self._chunk_queue: queue.Queue[np.ndarray | None] = queue.Queue()
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
 
-    committed = ""
-    speculative = ""
-    buffer: list[np.ndarray] = []
-    buffer_samples = 0
-    chunks_since_decode = 0
+    def stop(self) -> None:
+        """Signal the capture thread to stop."""
+        self._stop_event.set()
 
-    while (chunk := chunk_q.get()) is not None:
-        buffer.append(chunk)
-        buffer_samples += len(chunk)
-        chunks_since_decode += 1
+    def __enter__(self) -> "RealtimeTranscriber":
+        self._thread = threading.Thread(
+            target=_stream_mic_chunks, args=(self._chunk_queue, self._stop_event)
+        )
+        self._thread.start()
+        return self
 
-        # Accumulate until minimum audio available
-        if buffer_samples < MIN_AUDIO_SAMPLES:
-            continue
+    def __exit__(self, *args: object) -> None:
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join()
 
-        # Decode when interval elapsed or buffer maxed
-        buffer_maxed = buffer_samples >= MAX_BUFFER_SAMPLES
-        if not buffer_maxed and chunks_since_decode < SPECULATIVE_INTERVAL_CHUNKS:
-            continue
-
-        audio = np.concatenate(buffer)
+    def __iter__(self) -> Iterator[str]:
+        confirmed = ""
+        draft = ""
+        buffer: list[np.ndarray] = []
+        buffer_samples = 0
         chunks_since_decode = 0
 
-        if should_commit(audio):
-            # Commit: finalize text, reset buffer
-            # TODO: scan backward for last silence window to avoid mid-word splits
-            text = _transcribe(model, audio)
-            if text:
-                committed = f"{committed} {text}".strip()
-            buffer = []
-            buffer_samples = 0
-            speculative = ""
-        else:
-            # Speculative: keep buffer, update working text
-            speculative = _transcribe(model, audio)
+        while (chunk := self._chunk_queue.get()) is not None:
+            buffer.append(chunk)
+            buffer_samples += len(chunk)
+            chunks_since_decode += 1
 
-        yield f"{committed} {speculative}".strip()
+            # Accumulate until minimum audio available
+            if buffer_samples < MIN_AUDIO_SAMPLES:
+                continue
 
-    # Flush remaining audio on stop
-    if buffer:
-        audio = np.concatenate(buffer)
-        if len(audio) >= MIN_AUDIO_SAMPLES:
-            text = _transcribe(model, audio)
-            if text:
-                committed = f"{committed} {text}".strip()
-    if committed:
-        yield committed
+            # Decode when interval elapsed or buffer full
+            buffer_full = buffer_samples >= MAX_BUFFER_SAMPLES
+            if not buffer_full and chunks_since_decode < DRAFT_INTERVAL_CHUNKS:
+                continue
+
+            audio = np.concatenate(buffer)
+            chunks_since_decode = 0
+
+            if is_utterance_complete(audio):
+                # Confirm: finalize text, reset buffer
+                # TODO: scan backward for best silence window to avoid mid-word splits
+                text = _transcribe(self._model, audio)
+                if text:
+                    confirmed = f"{confirmed} {text}".strip()
+                buffer = []
+                buffer_samples = 0
+                draft = ""
+            else:
+                # Draft: keep buffer, update working text
+                draft = _transcribe(self._model, audio)
+
+            yield f"{confirmed} {draft}".strip()
+
+        # Flush remaining audio on stop
+        if buffer:
+            audio = np.concatenate(buffer)
+            if len(audio) >= MIN_AUDIO_SAMPLES:
+                text = _transcribe(self._model, audio)
+                if text:
+                    confirmed = f"{confirmed} {text}".strip()
+        if confirmed:
+            yield confirmed
