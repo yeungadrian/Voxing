@@ -12,6 +12,11 @@ from mlx_lm.tool_parsers.pythonic import parse_tool_call
 from mlx_lm.tool_parsers.pythonic import tool_call_end as _TOOL_CALL_END
 from mlx_lm.tool_parsers.pythonic import tool_call_start as _TOOL_CALL_START
 
+from voxing._progress import (
+    DownloadProgressCallback,
+    _make_tqdm_class,
+    _resolve_model_path,
+)
 from voxing.config import Settings
 
 _TOOLS = [
@@ -64,8 +69,16 @@ def _execute_python(code: str) -> str:
     return out.getvalue() + err.getvalue()
 
 
-def load_model(model_id: str) -> tuple[nn.Module, TokenizerWrapper]:
-    return cast(tuple[nn.Module, TokenizerWrapper], mlx_lm.load(model_id))
+def load_model(
+    model_id: str,
+    *,
+    on_progress: DownloadProgressCallback | None = None,
+) -> tuple[nn.Module, TokenizerWrapper]:
+    """Download (if needed) and load an LLM from HuggingFace Hub."""
+    tqdm_class = _make_tqdm_class(on_progress) if on_progress is not None else None
+    model_path = _resolve_model_path(model_id, tqdm_class)
+    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        return cast(tuple[nn.Module, TokenizerWrapper], mlx_lm.load(str(model_path)))
 
 
 class LocalAgent:
@@ -129,7 +142,10 @@ class LocalAgent:
                         self._messages.append(
                             {
                                 "role": "assistant",
-                                "content": f"{yielded_text}{_TOOL_CALL_START}{tool_text}{_TOOL_CALL_END}",
+                                "content": (
+                                    f"{yielded_text}"
+                                    f"{_TOOL_CALL_START}{tool_text}{_TOOL_CALL_END}"
+                                ),
                             }
                         )
                         self._messages.append({"role": "tool", "content": result})
