@@ -10,3 +10,6 @@
 - All private methods use single line docstrings
 - Prefer simplicity and allow loud crashes
 - Always use `uv add` to add dependencies instead of manually editing pyproject.toml
+- Avoid reading the parakeet module (as it is mostly copied from mlx-audio and cannot be modified, except for load_model in _model.py)
+- Textual app is not implemented yet
+- `scripts/` modules allows the developer to test out modules

@@ -84,6 +84,7 @@ class RealtimeTranscriber:
             self._thread.join()
 
     def __iter__(self) -> Iterator[str]:
+        # TODO: Separate draft vs confirmed so we can display difference to user.
         confirmed = ""
         draft = ""
         buffer: list[np.ndarray] = []

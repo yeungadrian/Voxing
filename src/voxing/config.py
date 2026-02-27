@@ -12,3 +12,10 @@ class Settings(BaseSettings):
     silence_threshold: float = 0.01
     max_buffer_secs: float = 45.0
     draft_interval_secs: float = 0.5
+
+    llm_model_id: str = "LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit"
+    llm_max_tokens: int = 4096
+    llm_temperature: float = 0.1
+    llm_top_k: int = 50
+    llm_top_p: float = 0.1
+    llm_repetition_penalty: float = 1.05

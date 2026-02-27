@@ -46,7 +46,7 @@ def main() -> None:
             console.input("\nPress Enter to start real-time recording... ")
 
             with RealtimeTranscriber(model, settings) as transcriber:
-
+                # Is there a better pattern to trigger the stop?
                 def _wait_for_enter(_stop: RealtimeTranscriber = transcriber) -> None:
                     input()
                     _stop.stop()
