@@ -74,7 +74,6 @@ class FooterBar(Static):
     FooterBar {
         height: auto;
         border: none;
-        border-top: solid $panel;
         color: $text-muted;
         padding: 0 1;
     }
@@ -120,8 +119,7 @@ class AssistantMessage(Widget):
         super().__init__()
 
     def render(self) -> str:
-        display = self._text + ("" if self._finalized else CURSOR)
-        return display
+        return self._text + ("" if self._finalized else CURSOR)
 
     def append_token(self, token: str) -> None:
         """Append a streaming token and refresh."""
@@ -198,12 +196,11 @@ class MessageList(VerticalScroll):
 class CommandHints(Static):
     DEFAULT_CSS = """
     CommandHints {
-        dock: bottom;
         height: auto;
         max-height: 6;
         padding: 0 2;
-        background: $surface;
-        color: $text-muted;
+        background: $background;
+        color: $text;
     }
     """
 
@@ -234,12 +231,14 @@ class ChatInput(Input):
         height: auto;
         border: none;
         border-top: solid $panel;
+        border-bottom: solid $panel;
         padding: 0 2;
         background: $background;
     }
     ChatInput:focus {
         border: none;
         border-top: solid $panel;
+        border-bottom: solid $panel;
         background: $background;
         background-tint: transparent;
     }

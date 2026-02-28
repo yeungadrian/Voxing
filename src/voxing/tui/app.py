@@ -1,16 +1,16 @@
+import mlx.nn as nn
+from mlx_lm.tokenizer_utils import TokenizerWrapper
 from textual import work
 from textual.app import App, ComposeResult
 from textual.events import Key
 from textual.screen import Screen
 from textual.widgets import Input
 
-import mlx.nn as nn
-from mlx_lm.tokenizer_utils import TokenizerWrapper
-
 from voxing.config import Settings
 from voxing.llm import LocalAgent, TextChunk, ToolCallInput, ToolCallOutput
 from voxing.llm import load_model as load_llm
-from voxing.parakeet import ParakeetTDT, load_model as load_stt
+from voxing.parakeet import ParakeetTDT
+from voxing.parakeet import load_model as load_stt
 from voxing.stt import RealtimeTranscriber
 from voxing.tui.screens import SettingsScreen
 from voxing.tui.theme import CATPPUCCIN_MOCHA
@@ -68,8 +68,8 @@ class ChatScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield MessageList()
-        yield CommandHints()
         yield ChatInput()
+        yield CommandHints()
         yield FooterBar()
 
     def on_mount(self) -> None:
@@ -88,6 +88,7 @@ class ChatScreen(Screen[None]):
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self.command_hints.update_hints(event.value)
+        self.footer_bar.display = not self.command_hints.display
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
@@ -95,6 +96,7 @@ class ChatScreen(Screen[None]):
             return
         self.chat_input.value = ""
         self.command_hints.display = False
+        self.footer_bar.display = True
 
         if text == "/clear":
             self._handle_clear()
