@@ -1,0 +1,18 @@
+SettingsScreen {
+    background: $background;
+}
+
+#settings-title {
+    text-style: bold;
+    width: 100%;
+    padding: 1 2;
+}
+
+#settings-list {
+    height: 1fr;
+}
+
+#system-prompt {
+    height: 10;
+    margin: 1 0;
+}
