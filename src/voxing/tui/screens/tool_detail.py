@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Markdown, Static
 
@@ -14,6 +14,39 @@ class ToolCallData:
     result: str
 
 
+class ToolEntry(Horizontal):
+    DEFAULT_CSS = """
+    ToolEntry {
+        height: auto;
+        padding: 0 1;
+        margin: 0;
+    }
+    ToolEntry > .tool-icon {
+        width: 2;
+        color: $warning;
+    }
+    ToolEntry > .tool-content {
+        width: 1fr;
+    }
+    ToolEntry > .tool-content Markdown {
+        margin: 0;
+        padding: 0;
+    }
+    """
+
+    def __init__(self, tool_call: ToolCallData) -> None:
+        self._tc = tool_call
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        """Compose icon and tool content."""
+        yield Static("\u26a1", classes="tool-icon")
+        parts = [f"**{self._tc.name}**\n```python\n{self._tc.code}\n```"]
+        if self._tc.result.strip():
+            parts.append(f"```\n{self._tc.result.strip()}\n```")
+        yield Markdown("\n".join(parts), classes="tool-content")
+
+
 class ToolDetailScreen(Screen[None]):
     BINDINGS = [
         Binding("escape", "dismiss", "Back"),
@@ -23,12 +56,13 @@ class ToolDetailScreen(Screen[None]):
     ToolDetailScreen {
         background: $background;
     }
-    ToolDetailScreen Static {
+    ToolDetailScreen > VerticalScroll {
+        scrollbar-size: 0 0;
+    }
+    ToolDetailScreen > #hint {
         color: $text-muted;
         padding: 0 1;
-    }
-    ToolDetailScreen .tool-header {
-        color: $warning;
+        dock: bottom;
     }
     """
 
@@ -39,10 +73,6 @@ class ToolDetailScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         """Compose the tool detail view."""
         with VerticalScroll():
-            for i, tc in enumerate(self._tool_calls, 1):
-                yield Static(f"\u26a1 {i}. {tc.name}", classes="tool-header")
-                parts = [f"**Input**\n```python\n{tc.code}\n```"]
-                if tc.result.strip():
-                    parts.append(f"**Output**\n```\n{tc.result.strip()}\n```")
-                yield Markdown("\n\n".join(parts))
-        yield Static("[dim]esc to return[/]")
+            for tc in self._tool_calls:
+                yield ToolEntry(tc)
+        yield Static("[dim]esc to return[/]", id="hint")

@@ -90,7 +90,7 @@ class LocalAgent:
         settings: Settings,
         messages: list[Message],
         *,
-        tools_enabled: bool = False,
+        tools_enabled: bool = True,
     ) -> None:
         self._model = model
         self._tokenizer = tokenizer
@@ -118,6 +118,8 @@ class LocalAgent:
                 tokenize=False,
                 add_generation_prompt=True,
             )
+            print("\n" + ("-"*200))
+            print(prompt)
 
             yielded_text = ""
             tool_text = ""
