@@ -9,5 +9,5 @@ class VoxingApp(App[None]):
 
     def on_mount(self) -> None:
         self.register_theme(CATPPUCCIN_MOCHA)
-        self.theme = "catppuccin-mocha"
+        self.theme = CATPPUCCIN_MOCHA.name
         self.push_screen(ChatScreen())

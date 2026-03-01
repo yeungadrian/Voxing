@@ -1,12 +1,88 @@
+import numpy as np
 import psutil
+from rich.segment import Segment
+from rich.style import Style
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.events import Key
 from textual.message import Message
+from textual.strip import Strip
 from textual.widget import Widget
 from textual.widgets import Markdown, Static, TextArea
 
 from voxing.tui.theme import PRIMARY
+from voxing.waveform import (
+    BRAILLE_BASE,
+    SUB_ROW_BITS,
+    VIZ_WINDOW,
+    bar_columns,
+    peaks,
+)
+
+_TUI_VIZ_HEIGHT = 2
+
+
+class AudioVisualizer(Widget):
+    """Renders live audio as a left-aligned bottom-up waveform."""
+
+    DEFAULT_CSS = """
+    AudioVisualizer {
+        height: 2;
+        width: 1fr;
+        max-width: 20%;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._buf = np.empty(0, dtype=np.float32)
+        self._cached_amps: list[float] = []
+        self._cached_columns: list[int | None] = []
+        self._cached_width: int = 0
+        self._style = Style.parse(PRIMARY)
+
+    def on_mount(self) -> None:
+        """Start periodic refresh to animate the visualizer."""
+        self.set_interval(0.1, self._tick)
+
+    def _tick(self) -> None:
+        """Recompute peaks once per frame then refresh."""
+        self._cached_amps = peaks(self._buf)
+        width = self.size.width or 0
+        if width != self._cached_width:
+            self._cached_width = width
+            self._cached_columns = bar_columns(width)
+        self.refresh()
+
+    def push_chunk(self, chunk: np.ndarray) -> None:
+        """Append audio and trim to the visualisation window."""
+        self._buf = np.concatenate([self._buf, chunk.astype(np.float32)])[-VIZ_WINDOW:]
+
+    def render_line(self, y: int) -> Strip:
+        """Render one terminal row as a bottom-up waveform."""
+        total_dots = (self.size.height or _TUI_VIZ_HEIGHT) * 4
+
+        segments: list[Segment] = []
+        for bar_idx in self._cached_columns:
+            if bar_idx is None:
+                segments.append(Segment(" "))
+                continue
+            amp = (
+                self._cached_amps[bar_idx] if bar_idx < len(self._cached_amps) else 0.0
+            )
+            bar_dots = amp * total_dots
+            bits = 0
+            for sub in range(4):
+                dot = y * 4 + sub
+                if total_dots - 1 - dot < bar_dots:
+                    bits |= SUB_ROW_BITS[sub]
+            if bits:
+                segments.append(Segment(chr(BRAILLE_BASE + bits), self._style))
+            else:
+                segments.append(Segment(" "))
+
+        return Strip(segments)
+
 
 SLASH_COMMANDS: dict[str, str] = {
     "/transcribe": "Start voice transcription",
@@ -39,7 +115,7 @@ class MemoryDisplay(Static):
     MemoryDisplay {
         width: auto;
         color: $text-muted;
-        padding: 0 1;
+        padding: 0 2;
     }
     """
 
@@ -85,22 +161,20 @@ class TranscriptionDisplay(Widget):
         padding: 0 1;
         margin: 0 0;
     }
+    TranscriptionDisplay > #recording-label {
+        color: $error;
+    }
     TranscriptionDisplay > #transcription-text {
         color: $text-muted;
     }
     TranscriptionDisplay > #transcription-text.active {
         color: $text;
     }
-    TranscriptionDisplay > #recording-label {
-        color: $error;
-    }
     """
 
-    def __init__(self) -> None:
-        super().__init__()
-
     def compose(self) -> ComposeResult:
-        """Compose the mic indicator and live text."""
+        """Compose the waveform, mic indicator and live text."""
+        yield AudioVisualizer()
         yield Static("⏺ Recording", id="recording-label")
         yield Static("Listening...", id="transcription-text")
 
@@ -110,6 +184,10 @@ class TranscriptionDisplay(Widget):
         text_widget = self.query_one("#transcription-text", Static)
         text_widget.update(text)
         text_widget.add_class("active")
+
+    def push_chunk(self, chunk: np.ndarray) -> None:
+        """Forward an audio chunk to the visualizer."""
+        self.query_one(AudioVisualizer).push_chunk(chunk)
 
 
 class UserMessage(Widget):
@@ -262,6 +340,9 @@ class ChatInput(TextArea):
     }
     ChatInput .text-area--cursor-line {
         background: transparent;
+    }
+    ChatInput .text-area--scrollbar {
+        width: 0;
     }
     """
 

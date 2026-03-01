@@ -12,6 +12,7 @@ from voxing.llm import load_model as load_llm
 from voxing.parakeet import load_model as load_stt
 from voxing.stt import RealtimeTranscriber
 from voxing.tui.messages import (
+    AudioChunk,
     GenerationComplete,
     TokenReceived,
     TranscriptionFinal,
@@ -30,6 +31,8 @@ from voxing.tui.widgets import (
     WelcomeMessage,
 )
 
+_IDLE_STATUS = "[dim]type / for commands[/]"
+
 
 class ChatScreen(Screen[None]):
     CSS_PATH = "../styles.tcss"
@@ -44,7 +47,7 @@ class ChatScreen(Screen[None]):
         self._active_transcriber: RealtimeTranscriber | None = None
         self._transcriber_lock = threading.Lock()
         self._transcription_display: TranscriptionDisplay | None = None
-        self._transcribe_cancel: threading.Event = threading.Event()
+        self._transcribe_cancel = threading.Event()
 
     @property
     def footer_bar(self) -> FooterBar:
@@ -70,7 +73,7 @@ class ChatScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self.message_list.mount(WelcomeMessage())
-        self.footer_bar.set_status("[dim]type / for commands[/]")
+        self.footer_bar.set_status(_IDLE_STATUS)
         self.chat_input.focus()
 
     def on_screen_resume(self) -> None:
@@ -132,7 +135,7 @@ class ChatScreen(Screen[None]):
 
     def _handle_transcribe(self) -> None:
         self._remove_welcome()
-        self._transcribe_cancel = threading.Event()
+        self._transcribe_cancel.clear()
         self.chat_input.disabled = True
         self.footer_bar.set_status(f"[{WARNING}]Loading STT model...[/]")
         self._transcription_display = TranscriptionDisplay()
@@ -169,6 +172,8 @@ class ChatScreen(Screen[None]):
     def _generate(self, user_message: str) -> None:
         """Load LLM, stream generation, then unload."""
         model = None
+        tokenizer = None
+        agent = None
         error: str | None = None
         try:
             self.app.call_from_thread(
@@ -194,6 +199,8 @@ class ChatScreen(Screen[None]):
         except Exception as exc:
             error = str(exc) or type(exc).__name__
         finally:
+            del agent
+            del tokenizer
             del model
             mx.clear_cache()
             self.post_message(GenerationComplete(error=error))
@@ -202,6 +209,7 @@ class ChatScreen(Screen[None]):
     def _transcribe(self) -> None:
         """Load STT model, run real-time transcription, then unload."""
         model = None
+        transcriber = None
         last_text = ""
         error: str | None = None
         try:
@@ -217,7 +225,11 @@ class ChatScreen(Screen[None]):
             if self._transcribe_cancel.is_set():
                 return
 
-            transcriber = RealtimeTranscriber(model, self._settings)
+            transcriber = RealtimeTranscriber(
+                model,
+                self._settings,
+                on_chunk=lambda chunk: self.post_message(AudioChunk(chunk)),
+            )
             with self._transcriber_lock:
                 self._active_transcriber = transcriber
             try:
@@ -230,6 +242,7 @@ class ChatScreen(Screen[None]):
         except Exception as exc:
             error = str(exc) or type(exc).__name__
         finally:
+            del transcriber
             del model
             mx.clear_cache()
             self.post_message(TranscriptionFinal(last_text, error=error))
@@ -258,12 +271,16 @@ class ChatScreen(Screen[None]):
         if message.error:
             self.footer_bar.set_status(f"[{ERROR}]Generation error: {message.error}[/]")
         else:
-            self.footer_bar.set_status("[dim]type / for commands[/]")
+            self.footer_bar.set_status(_IDLE_STATUS)
 
     def on_transcription_update(self, message: TranscriptionUpdate) -> None:
         if self._transcription_display is not None:
             self._transcription_display.update_text(message.text)
             self.message_list.scroll_end(animate=False)
+
+    def on_audio_chunk(self, message: AudioChunk) -> None:
+        if self._transcription_display is not None:
+            self._transcription_display.push_chunk(message.chunk)
 
     def on_transcription_final(self, message: TranscriptionFinal) -> None:
         if self._transcription_display is not None:

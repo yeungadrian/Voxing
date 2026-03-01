@@ -1,3 +1,4 @@
+import numpy as np
 from textual.message import Message
 
 
@@ -23,4 +24,10 @@ class TranscriptionFinal(Message):
     def __init__(self, text: str, error: str | None = None) -> None:
         self.text = text
         self.error = error
+        super().__init__()
+
+
+class AudioChunk(Message):
+    def __init__(self, chunk: np.ndarray) -> None:
+        self.chunk = chunk
         super().__init__()

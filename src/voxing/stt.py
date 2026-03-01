@@ -1,6 +1,6 @@
 import queue
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import mlx.core as mx
 import numpy as np
@@ -37,9 +37,15 @@ def _stream_mic_chunks(
 
 
 class RealtimeTranscriber:
-    def __init__(self, model: ParakeetTDT, settings: Settings) -> None:
+    def __init__(
+        self,
+        model: ParakeetTDT,
+        settings: Settings,
+        on_chunk: Callable[[np.ndarray], None] | None = None,
+    ) -> None:
         self._model = model
         self._settings = settings
+        self._on_chunk = on_chunk
         self._chunk_samples = int(settings.sample_rate * settings.chunk_duration)
         self._min_audio_samples = int(settings.sample_rate * settings.min_audio_secs)
         self._max_buffer_samples = int(settings.sample_rate * settings.max_buffer_secs)
@@ -103,6 +109,9 @@ class RealtimeTranscriber:
             buffer.append(chunk)
             buffer_samples += len(chunk)
             chunks_since_decode += 1
+
+            if self._on_chunk is not None:
+                self._on_chunk(chunk)
 
             # Stop is set: drain remaining queued chunks then flush once at the end
             if self._stop_event.is_set():
