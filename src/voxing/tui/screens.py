@@ -87,6 +87,7 @@ class SettingRow(Static):
         inp = self.query_one(Input)
         inp.value = str(self.entry.value)
         inp.focus()
+        inp.action_end()
 
     def commit_edit(self) -> bool:
         """Parse and commit the edited value. Returns False on parse error."""
@@ -156,17 +157,19 @@ class SettingsList(VerticalScroll):
             else:
                 row.remove_class("-highlight")
 
-    def move_up(self) -> None:
-        """Move highlight up one row."""
+    def move_up(self) -> SettingRow | None:
+        """Move highlight up one row, returning the new row."""
         if self._highlight_index > 0:
             self._highlight_index -= 1
             self._update_highlight()
             row = self.highlighted_row
             if row is not None:
                 row.scroll_visible()
+            return row
+        return None
 
-    def move_down(self) -> None:
-        """Move highlight down one row."""
+    def move_down(self) -> SettingRow | None:
+        """Move highlight down one row, returning the new row."""
         rows = list(self.query(SettingRow))
         if self._highlight_index < len(rows) - 1:
             self._highlight_index += 1
@@ -174,6 +177,8 @@ class SettingsList(VerticalScroll):
             row = self.highlighted_row
             if row is not None:
                 row.scroll_visible()
+            return row
+        return None
 
     @property
     def highlighted_row(self) -> SettingRow | None:
@@ -187,7 +192,6 @@ class SettingsList(VerticalScroll):
 class SettingsScreen(Screen[SettingsResult | None]):
     BINDINGS = [
         Binding("escape", "save_and_dismiss", "Save & back", priority=True),
-        Binding("enter", "activate", "Edit/Toggle", priority=True),
     ]
 
     def __init__(
@@ -212,10 +216,8 @@ class SettingsScreen(Screen[SettingsResult | None]):
         if self._editing:
             row = self.query_one(SettingsList).highlighted_row
             if row is not None:
-                row.cancel_edit()
+                row.commit_edit()
             self._editing = False
-            self.query_one(SettingsList).focus()
-            return
         overrides: dict[str, bool | int | float | str] = {}
         tools = self._tools_enabled
         prompt = self._system_prompt
@@ -230,39 +232,59 @@ class SettingsScreen(Screen[SettingsResult | None]):
                     overrides[entry.key] = entry.value
         self.dismiss(SettingsResult(tools, prompt, overrides))
 
-    def action_activate(self) -> None:
-        if self._editing:
-            row = self.query_one(SettingsList).highlighted_row
-            if row is not None:
-                row.commit_edit()
-            self._editing = False
-            self.query_one(SettingsList).focus()
+    def _commit_current_edit(self) -> None:
+        """Commit the current edit if one is active."""
+        if not self._editing:
             return
         row = self.query_one(SettingsList).highlighted_row
-        if row is None:
-            return
-        if row.entry.kind == "bool":
-            row.toggle_bool()
-        else:
+        if row is not None:
+            row.commit_edit()
+        self._editing = False
+
+    def _auto_edit_row(self, row: SettingRow | None) -> None:
+        """Auto-enter edit mode if the row is non-bool."""
+        if row is not None and row.entry.kind != "bool":
             row.begin_edit()
             self._editing = True
 
-    def on_key(self, event) -> None:
-        if self._editing:
-            return
+    def on_key(self, event) -> None:  # noqa: ANN001
         settings_list = self.query_one(SettingsList)
         search = self.query_one("#search-bar", Input)
+
+        if self._editing:
+            if event.key in ("up", "down"):
+                self._commit_current_edit()
+                new_row = (
+                    settings_list.move_up()
+                    if event.key == "up"
+                    else settings_list.move_down()
+                )
+                self._auto_edit_row(new_row)
+                event.prevent_default()
+            elif event.key == "tab":
+                self._commit_current_edit()
+                search.focus()
+                event.prevent_default()
+            return
+
         if not search.has_focus:
             if event.key == "up":
-                settings_list.move_up()
+                self._commit_current_edit()
+                new_row = settings_list.move_up()
+                self._auto_edit_row(new_row)
                 event.prevent_default()
             elif event.key == "down":
-                settings_list.move_down()
+                self._commit_current_edit()
+                new_row = settings_list.move_down()
+                self._auto_edit_row(new_row)
                 event.prevent_default()
             elif event.key in ("left", "right"):
                 row = settings_list.highlighted_row
                 if row is not None and row.entry.kind == "bool":
                     row.toggle_bool()
+                event.prevent_default()
+            elif event.key == "tab":
+                search.focus()
                 event.prevent_default()
             elif event.is_printable and event.character:
                 search.focus()
