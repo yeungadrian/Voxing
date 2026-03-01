@@ -7,11 +7,7 @@ from dataclasses import dataclass
 import mlx.core as mx
 import mlx.nn as nn
 
-from voxing._progress import (
-    DownloadProgressCallback,
-    _make_tqdm_class,
-    _resolve_model_path,
-)
+from voxing._download import _resolve_model_path
 from voxing.parakeet._alignment import (
     AlignedResult,
     AlignedToken,
@@ -255,15 +251,10 @@ def _build_model(config: dict) -> ParakeetTDT:
     return ParakeetTDT(from_dict(ParakeetTDTArgs, config))
 
 
-def load_model(
-    model_id: str,
-    *,
-    on_progress: DownloadProgressCallback | None = None,
-) -> ParakeetTDT:
+def load_model(model_id: str) -> ParakeetTDT:
     """Download (if needed) and load a Parakeet model from HuggingFace Hub."""
-    tqdm_class = _make_tqdm_class(on_progress) if on_progress is not None else None
     model_path = _resolve_model_path(
-        model_id, tqdm_class, allow_patterns=["*.json", "*.safetensors"]
+        model_id, allow_patterns=["*.json", "*.safetensors"]
     )
     config = json.loads((model_path / "config.json").read_text())
     model = _build_model(config)

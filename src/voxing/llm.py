@@ -9,11 +9,7 @@ import mlx_lm
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from voxing._progress import (
-    DownloadProgressCallback,
-    _make_tqdm_class,
-    _resolve_model_path,
-)
+from voxing._download import _resolve_model_path
 from voxing.config import Settings
 
 type Message = dict[str, object]
@@ -24,14 +20,9 @@ class TextChunk:
     content: str
 
 
-def load_model(
-    model_id: str,
-    *,
-    on_progress: DownloadProgressCallback | None = None,
-) -> tuple[nn.Module, TokenizerWrapper]:
+def load_model(model_id: str) -> tuple[nn.Module, TokenizerWrapper]:
     """Download (if needed) and load an LLM from HuggingFace Hub."""
-    tqdm_class = _make_tqdm_class(on_progress) if on_progress is not None else None
-    model_path = _resolve_model_path(model_id, tqdm_class)
+    model_path = _resolve_model_path(model_id)
     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
         return cast(tuple[nn.Module, TokenizerWrapper], mlx_lm.load(str(model_path)))
 
