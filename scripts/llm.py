@@ -17,7 +17,12 @@ _EXAMPLES = [
     "Now add 999 to that result.",
 ]
 
-agent = LocalAgent(model, tokenizer, settings)
+agent = LocalAgent(
+    model,
+    tokenizer,
+    settings,
+    messages=[{"role": "system", "content": "You are a helpful assistant."}],
+)
 for user_input in _EXAMPLES:
     print(f"You: {user_input}")
     print("Assistant: ", end="", flush=True)

@@ -1,5 +1,4 @@
-import mlx.nn as nn
-from mlx_lm.tokenizer_utils import TokenizerWrapper
+import mlx.core as mx
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -8,9 +7,8 @@ from textual.screen import Screen
 from textual.widgets import Input
 
 from voxing.config import Settings
-from voxing.llm import LocalAgent, TextChunk, ToolCallInput, ToolCallOutput
+from voxing.llm import LocalAgent, Message, TextChunk, ToolCallInput, ToolCallOutput
 from voxing.llm import load_model as load_llm
-from voxing.parakeet import ParakeetTDT
 from voxing.parakeet import load_model as load_stt
 from voxing.stt import RealtimeTranscriber
 from voxing.tui.screens import (
@@ -28,7 +26,6 @@ from voxing.tui.widgets import (
     FooterBar,
     GenerationComplete,
     MessageList,
-    ModelsReady,
     TokenReceived,
     ToolCallFinished,
     ToolCallStarted,
@@ -50,12 +47,11 @@ class ChatScreen(Screen[None]):
     def __init__(self) -> None:
         super().__init__()
         self._settings = Settings()
-        self._stt_model: ParakeetTDT | None = None
-        self._llm_model: nn.Module | None = None
-        self._llm_tokenizer: TokenizerWrapper | None = None
-        self._agent: LocalAgent | None = None
         self._tools_enabled = True
         self._system_prompt = _DEFAULT_SYSTEM_PROMPT
+        self._messages: list[Message] = [
+            {"role": "system", "content": _DEFAULT_SYSTEM_PROMPT}
+        ]
         self._current_assistant_msg: AssistantMessage | None = None
         self._active_transcriber: RealtimeTranscriber | None = None
 
@@ -83,9 +79,7 @@ class ChatScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self.message_list.mount(WelcomeMessage())
-        self.chat_input.disabled = True
-        self.footer_bar.set_status("Loading models...")
-        self._load_models()
+        self.footer_bar.set_status("Ready")
 
     def _remove_welcome(self) -> None:
         """Remove the welcome message if present."""
@@ -123,8 +117,7 @@ class ChatScreen(Screen[None]):
     def _handle_clear(self) -> None:
         self.message_list.clear_messages()
         self.message_list.mount(WelcomeMessage())
-        if self._agent is not None:
-            self._agent = self._create_agent()
+        self._messages = [{"role": "system", "content": self._system_prompt}]
         self.footer_bar.set_status("Chat cleared")
 
     def _handle_settings(self) -> None:
@@ -141,32 +134,25 @@ class ChatScreen(Screen[None]):
         if result.config_overrides:
             merged = {**self._settings.model_dump(), **result.config_overrides}
             self._settings = Settings.model_validate(merged)
-        if self._llm_model is not None:
-            self._agent = self._create_agent()
+        self._messages = [{"role": "system", "content": self._system_prompt}]
         self.message_list.clear_messages()
         self.message_list.mount(WelcomeMessage())
         self.footer_bar.set_status("Settings saved, chat reset")
 
     def _handle_transcribe(self) -> None:
-        if self._stt_model is None:
-            self.footer_bar.set_status("STT model not loaded yet")
-            return
         self.chat_input.disabled = True
-        self.footer_bar.set_status("Recording... (Escape to stop)")
+        self.footer_bar.set_status("Loading STT model...")
         self._transcribe()
 
     def _handle_help(self) -> None:
         self.footer_bar.set_status("Commands: " + ", ".join(SLASH_COMMANDS))
 
     def _send_message(self, text: str) -> None:
-        if self._agent is None:
-            self.footer_bar.set_status("Models not loaded yet")
-            return
         self._remove_welcome()
         self.chat_input.disabled = True
         self.message_list.add_user_message(text)
         self._current_assistant_msg = None
-        self.footer_bar.set_status("Generating...")
+        self.footer_bar.set_status("Loading LLM...")
         self._generate(text)
 
     def on_key(self, event: Key) -> None:
@@ -187,35 +173,23 @@ class ChatScreen(Screen[None]):
 
     # --- Workers ---
 
-    @work(thread=True, exclusive=True, group="models")
-    def _load_models(self) -> None:
-        """Load STT and LLM models in background."""
-
-        def on_progress(desc: str, advance: int, total: int | None) -> None:
-            self.app.call_from_thread(
-                self.footer_bar.set_status, f"Downloading: {desc}"
-            )
-
-        stt_model = load_stt(self._settings.model_id, on_progress=on_progress)
-        self.app.call_from_thread(
-            self.footer_bar.set_status, "STT loaded, loading LLM..."
-        )
-
-        llm_model, tokenizer = load_llm(
-            self._settings.llm_model_id, on_progress=on_progress
-        )
-        self._stt_model = stt_model
-        self._llm_model = llm_model
-        self._llm_tokenizer = tokenizer
-        self.post_message(ModelsReady())
-
     @work(thread=True, exclusive=True, group="generate")
     def _generate(self, user_message: str) -> None:
-        """Stream LLM generation."""
-        assert self._agent is not None
+        """Load LLM, stream generation, then unload."""
+        self.app.call_from_thread(self.footer_bar.set_status, "Loading LLM...")
+        model, tokenizer = load_llm(self._settings.llm_model_id)
+        self.app.call_from_thread(self.footer_bar.set_status, "Generating...")
+
+        agent = LocalAgent(
+            model,
+            tokenizer,
+            self._settings,
+            self._messages,
+            tools_enabled=self._tools_enabled,
+        )
         last_tool_code = ""
         last_tool_name = ""
-        for event in self._agent.generate(user_message):
+        for event in agent.generate(user_message):
             match event:
                 case TextChunk(content=token):
                     self.post_message(TokenReceived(token))
@@ -227,13 +201,21 @@ class ChatScreen(Screen[None]):
                     self.post_message(
                         ToolCallFinished(last_tool_code, result, last_tool_name)
                     )
+
+        del agent, model, tokenizer
+        mx.clear_cache()
         self.post_message(GenerationComplete())
 
     @work(thread=True, exclusive=True, group="transcribe")
     def _transcribe(self) -> None:
-        """Run real-time transcription."""
-        assert self._stt_model is not None
-        transcriber = RealtimeTranscriber(self._stt_model, self._settings)
+        """Load STT model, run real-time transcription, then unload."""
+        self.app.call_from_thread(self.footer_bar.set_status, "Loading STT model...")
+        model = load_stt(self._settings.model_id)
+        self.app.call_from_thread(
+            self.footer_bar.set_status, "Recording... (Escape to stop)"
+        )
+
+        transcriber = RealtimeTranscriber(model, self._settings)
         self._active_transcriber = transcriber
         with transcriber:
             last_text = ""
@@ -242,6 +224,9 @@ class ChatScreen(Screen[None]):
             if last_text:
                 self.post_message(TranscriptionFinal(last_text))
         self._active_transcriber = None
+
+        del transcriber, model
+        mx.clear_cache()
 
     # --- Message handlers ---
 
@@ -287,24 +272,6 @@ class ChatScreen(Screen[None]):
         self.chat_input.disabled = False
         self.chat_input.focus()
         self.footer_bar.set_status("")
-
-    def on_models_ready(self, message: ModelsReady) -> None:
-        self._agent = self._create_agent()
-        self.chat_input.disabled = False
-        self.chat_input.focus()
-        self.footer_bar.set_status("Ready")
-
-    def _create_agent(self) -> LocalAgent:
-        """Create a new LocalAgent with current settings."""
-        assert self._llm_model is not None
-        assert self._llm_tokenizer is not None
-        return LocalAgent(
-            self._llm_model,
-            self._llm_tokenizer,
-            self._settings,
-            tools_enabled=self._tools_enabled,
-            system_prompt=self._system_prompt,
-        )
 
 
 class VoxingApp(App[None]):

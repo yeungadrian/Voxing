@@ -1,3 +1,4 @@
+import psutil
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.message import Message
@@ -52,10 +53,6 @@ class TranscriptionFinal(Message):
         super().__init__()
 
 
-class ModelsReady(Message):
-    pass
-
-
 class WelcomeMessage(Static):
     DEFAULT_CSS = """
     WelcomeMessage {
@@ -72,22 +69,48 @@ class WelcomeMessage(Static):
         super().__init__("voxing\n\nlocal voice assistant")
 
 
-class FooterBar(Static):
+class MemoryDisplay(Static):
     DEFAULT_CSS = """
-    FooterBar {
-        height: auto;
-        border: none;
+    MemoryDisplay {
+        width: auto;
         color: $text-muted;
         padding: 0 1;
     }
     """
 
-    def __init__(self) -> None:
-        super().__init__("")
+    def on_mount(self) -> None:
+        """Start polling memory usage every second."""
+        self._process = psutil.Process()
+        self.set_interval(1.0, self._update)
+
+    def _update(self) -> None:
+        """Refresh displayed memory from process RSS."""
+        mb = self._process.memory_info().rss / 1024 / 1024
+        self.update(f"{mb:.0f} MB")
+
+
+class FooterBar(Widget):
+    DEFAULT_CSS = """
+    FooterBar {
+        height: auto;
+        border: none;
+        layout: horizontal;
+    }
+    FooterBar > #status {
+        width: 1fr;
+        color: $text-muted;
+        padding: 0 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        """Compose status label and memory display."""
+        yield Static("", id="status")
+        yield MemoryDisplay()
 
     def set_status(self, status: str) -> None:
         """Update the footer status text."""
-        self.update(status)
+        self.query_one("#status", Static).update(status)
 
 
 class UserMessage(Widget):

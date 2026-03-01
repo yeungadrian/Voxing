@@ -88,15 +88,15 @@ class LocalAgent:
         model: nn.Module,
         tokenizer: TokenizerWrapper,
         settings: Settings,
+        messages: list[Message],
         *,
         tools_enabled: bool = False,
-        system_prompt: str = _DEFAULT_SYSTEM_PROMPT,
     ) -> None:
         self._model = model
         self._tokenizer = tokenizer
         self._settings = settings
         self._tools_enabled = tools_enabled
-        self._messages: list[Message] = [{"role": "system", "content": system_prompt}]
+        self._messages = messages
 
     def generate(self, user_message: str) -> Iterator[GenerationEvent]:
         self._messages.append({"role": "user", "content": user_message})
