@@ -27,6 +27,9 @@ class ToolDetailScreen(Screen[None]):
         color: $text-muted;
         padding: 0 1;
     }
+    ToolDetailScreen .tool-header {
+        color: $warning;
+    }
     """
 
     def __init__(self, tool_calls: list[ToolCallData]) -> None:
@@ -37,7 +40,7 @@ class ToolDetailScreen(Screen[None]):
         """Compose the tool detail view."""
         with VerticalScroll():
             for i, tc in enumerate(self._tool_calls, 1):
-                yield Static(f"\u26a1 {i}. {tc.name}")
+                yield Static(f"\u26a1 {i}. {tc.name}", classes="tool-header")
                 parts = [f"**Input**\n```python\n{tc.code}\n```"]
                 if tc.result.strip():
                     parts.append(f"**Output**\n```\n{tc.result.strip()}\n```")

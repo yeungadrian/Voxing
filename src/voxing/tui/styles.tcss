@@ -33,7 +33,7 @@ SettingRow Horizontal {
 }
 
 SettingRow.-highlight {
-    color: #89b4fa;
+    color: $primary;
 }
 
 .setting-label {
@@ -54,15 +54,15 @@ SettingRow .setting-input {
     border: none;
     padding: 0;
     background: $background;
-    color: #89b4fa;
+    color: $primary;
     &:focus {
         background: $background;
         background-tint: transparent;
         border: none;
     }
     & > .input--selection {
-        background: #313244;
-        color: #89b4fa;
+        background: $surface;
+        color: $primary;
     }
     & > .input--cursor {
         background: #cdd6f4;

@@ -29,7 +29,7 @@ class WelcomeMessage(Static):
     """
 
     def __init__(self) -> None:
-        super().__init__("voxing\n\nlocal voice assistant")
+        super().__init__("[bold #89b4fa]voxing[/]\n\n[dim]local voice assistant[/]")
 
 
 class MemoryDisplay(Static):
@@ -92,6 +92,9 @@ class TranscriptionDisplay(Widget):
     TranscriptionDisplay > #transcription-hint {
         color: $text-muted;
     }
+    TranscriptionDisplay > #recording-label {
+        color: $error;
+    }
     """
 
     _HINT = "Press Escape to stop"
@@ -117,9 +120,17 @@ class TranscriptionDisplay(Widget):
 class UserMessage(Widget):
     DEFAULT_CSS = """
     UserMessage {
+        layout: horizontal;
         height: auto;
         padding: 0 1;
         margin: 0 0;
+    }
+    UserMessage > .user-icon {
+        width: 2;
+        color: $secondary;
+    }
+    UserMessage > .user-text {
+        width: 1fr;
     }
     """
 
@@ -127,8 +138,10 @@ class UserMessage(Widget):
         self._content = content
         super().__init__()
 
-    def render(self) -> str:
-        return f"> {self._content}"
+    def compose(self) -> ComposeResult:
+        """Compose the icon and text."""
+        yield Static(">", classes="user-icon")
+        yield Static(self._content, classes="user-text")
 
 
 class AssistantMessage(Widget):
@@ -141,6 +154,7 @@ class AssistantMessage(Widget):
     }
     AssistantMessage > Static {
         width: 2;
+        color: $accent;
     }
     AssistantMessage > Markdown {
         width: 1fr;
@@ -183,7 +197,7 @@ class ToolCallWidget(Static):
         height: auto;
         margin: 0;
         padding: 0 1;
-        color: $text-muted;
+        color: $warning;
     }
     """
 
@@ -247,7 +261,7 @@ class CommandHints(Static):
             self.display = False
             return
         matches = [
-            f"{cmd}  {desc}"
+            f"[bold]{cmd}[/]  {desc}"
             for cmd, desc in SLASH_COMMANDS.items()
             if cmd.startswith(prefix)
         ]
