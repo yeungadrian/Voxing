@@ -1,7 +1,6 @@
 import psutil
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
-from textual.message import Message
 from textual.suggester import SuggestFromList
 from textual.widget import Widget
 from textual.widgets import Input, Markdown, Static
@@ -14,43 +13,6 @@ SLASH_COMMANDS: dict[str, str] = {
 }
 
 CURSOR = "\u258c"
-
-
-class TokenReceived(Message):
-    def __init__(self, token: str) -> None:
-        self.token = token
-        super().__init__()
-
-
-class GenerationComplete(Message):
-    pass
-
-
-class ToolCallStarted(Message):
-    def __init__(self, code: str, name: str) -> None:
-        self.code = code
-        self.name = name
-        super().__init__()
-
-
-class ToolCallFinished(Message):
-    def __init__(self, code: str, result: str, name: str) -> None:
-        self.code = code
-        self.result = result
-        self.name = name
-        super().__init__()
-
-
-class TranscriptionUpdate(Message):
-    def __init__(self, text: str) -> None:
-        self.text = text
-        super().__init__()
-
-
-class TranscriptionFinal(Message):
-    def __init__(self, text: str) -> None:
-        self.text = text
-        super().__init__()
 
 
 class WelcomeMessage(Static):
@@ -111,6 +73,44 @@ class FooterBar(Widget):
     def set_status(self, status: str) -> None:
         """Update the footer status text."""
         self.query_one("#status", Static).update(status)
+
+
+class TranscriptionDisplay(Widget):
+    DEFAULT_CSS = """
+    TranscriptionDisplay {
+        height: auto;
+        padding: 0 1;
+        margin: 0 0;
+    }
+    TranscriptionDisplay > #transcription-text {
+        color: $text-muted;
+    }
+    TranscriptionDisplay > #transcription-text.active {
+        color: $text;
+    }
+    TranscriptionDisplay > #transcription-hint {
+        color: $text-muted;
+    }
+    """
+
+    _HINT = "Press Escape to stop"
+
+    def __init__(self) -> None:
+        self._text = ""
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        """Compose the mic indicator, live text, and stop hint."""
+        yield Static("⏺ Recording", id="recording-label")
+        yield Static("Listening...", id="transcription-text")
+        yield Static(self._HINT, id="transcription-hint")
+
+    def update_text(self, text: str) -> None:
+        """Update the live transcription text and switch to active colour."""
+        self._text = text
+        text_widget = self.query_one("#transcription-text", Static)
+        text_widget.update(text)
+        text_widget.add_class("active")
 
 
 class UserMessage(Widget):
