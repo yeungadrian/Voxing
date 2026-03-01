@@ -2,17 +2,59 @@ SettingsScreen {
     background: $background;
 }
 
-#settings-title {
-    text-style: bold;
-    width: 100%;
-    padding: 1 2;
+#search-bar {
+    dock: top;
+    border: none;
+    border-top: solid $panel;
+    border-bottom: solid $panel;
+    padding: 0 2;
+    background: $background;
 }
 
-#settings-list {
-    height: 1fr;
+#search-bar:focus {
+    border: none;
+    border-top: solid $panel;
+    border-bottom: solid $panel;
+    background: $background;
+    background-tint: transparent;
 }
 
-#system-prompt {
-    height: 10;
-    margin: 1 0;
+SettingsList {
+    background: $background;
+}
+
+SettingRow {
+    height: 1;
+    padding: 0 2;
+}
+
+SettingRow Horizontal {
+    height: 1;
+}
+
+SettingRow.-highlight {
+    background: $surface;
+}
+
+.setting-label {
+    width: 30;
+}
+
+.setting-value {
+    width: 1fr;
+    color: $text-muted;
+}
+
+SettingRow.-editing .setting-value {
+    display: none;
+}
+
+SettingRow .setting-input {
+    display: none;
+    height: 1;
+    border: none;
+}
+
+SettingRow.-editing .setting-input {
+    display: block;
 }

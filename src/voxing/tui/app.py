@@ -13,7 +13,12 @@ from voxing.llm import load_model as load_llm
 from voxing.parakeet import ParakeetTDT
 from voxing.parakeet import load_model as load_stt
 from voxing.stt import RealtimeTranscriber
-from voxing.tui.screens import SettingsScreen, ToolCallData, ToolDetailScreen
+from voxing.tui.screens import (
+    SettingsResult,
+    SettingsScreen,
+    ToolCallData,
+    ToolDetailScreen,
+)
 from voxing.tui.theme import CATPPUCCIN_MOCHA
 from voxing.tui.widgets import (
     SLASH_COMMANDS,
@@ -124,14 +129,18 @@ class ChatScreen(Screen[None]):
 
     def _handle_settings(self) -> None:
         self.app.push_screen(
-            SettingsScreen(self._tools_enabled, self._system_prompt),
+            SettingsScreen(self._settings, self._tools_enabled, self._system_prompt),
             callback=self._on_settings_dismissed,
         )
 
-    def _on_settings_dismissed(self, result: tuple[bool, str] | None) -> None:
+    def _on_settings_dismissed(self, result: SettingsResult | None) -> None:
         if result is None:
             return
-        self._tools_enabled, self._system_prompt = result
+        self._tools_enabled = result.tools_enabled
+        self._system_prompt = result.system_prompt
+        if result.config_overrides:
+            merged = {**self._settings.model_dump(), **result.config_overrides}
+            self._settings = Settings.model_validate(merged)
         if self._llm_model is not None:
             self._agent = self._create_agent()
         self.message_list.clear_messages()
