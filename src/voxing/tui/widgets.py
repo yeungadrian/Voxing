@@ -1,9 +1,10 @@
 import psutil
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
-from textual.suggester import SuggestFromList
+from textual.events import Key
+from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import Input, Markdown, Static
+from textual.widgets import Markdown, Static, TextArea
 
 SLASH_COMMANDS: dict[str, str] = {
     "/transcribe": "Start voice transcription",
@@ -61,7 +62,7 @@ class FooterBar(Widget):
     FooterBar > #status {
         width: 1fr;
         color: $text-muted;
-        padding: 0 1;
+        padding: 0 2;
     }
     """
 
@@ -257,10 +258,12 @@ class CommandHints(Static):
             self.display = False
 
 
-class ChatInput(Input):
+class ChatInput(TextArea):
     DEFAULT_CSS = """
     ChatInput {
         height: auto;
+        max-height: 6;
+        min-height: 1;
         border: none;
         border-top: solid $panel;
         border-bottom: solid $panel;
@@ -274,10 +277,36 @@ class ChatInput(Input):
         background: $background;
         background-tint: transparent;
     }
+    ChatInput .text-area--cursor-line {
+        background: transparent;
+    }
     """
+
+    class Submitted(Message):
+        """Posted when the user presses Enter."""
+
+        def __init__(self, value: str) -> None:
+            self.value = value
+            super().__init__()
 
     def __init__(self) -> None:
         super().__init__(
-            placeholder="Type a message or / for commands...",
-            suggester=SuggestFromList(list(SLASH_COMMANDS.keys()), case_sensitive=True),
+            language=None,
+            soft_wrap=True,
+            show_line_numbers=False,
+            tab_behavior="focus",
         )
+
+    async def _on_key(self, event: Key) -> None:
+        """Intercept Enter to submit and Tab to prevent focus change."""
+        if event.key == "tab":
+            event.prevent_default()
+            event.stop()
+            return
+        if event.key == "enter":
+            event.prevent_default()
+            event.stop()
+            text = self.text.strip()
+            if text:
+                self.post_message(self.Submitted(text))
+            return

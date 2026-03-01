@@ -6,7 +6,6 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.events import Key
 from textual.screen import Screen
-from textual.widgets import Input
 
 from voxing.config import Settings
 from voxing.llm import LocalAgent, Message, TextChunk, ToolCallInput, ToolCallOutput
@@ -82,6 +81,10 @@ class ChatScreen(Screen[None]):
     def on_mount(self) -> None:
         self.message_list.mount(WelcomeMessage())
         self.footer_bar.set_status("Ready")
+        self.chat_input.focus()
+
+    def on_screen_resume(self) -> None:
+        self.chat_input.focus()
 
     def _remove_welcome(self) -> None:
         """Remove the welcome message if present."""
@@ -91,15 +94,13 @@ class ChatScreen(Screen[None]):
         except Exception:
             pass
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        self.command_hints.update_hints(event.value)
+    def on_text_area_changed(self, event: ChatInput.Changed) -> None:
+        self.command_hints.update_hints(self.chat_input.text)
         self.footer_bar.display = not self.command_hints.display
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        text = event.value.strip()
-        if not text:
-            return
-        self.chat_input.value = ""
+    def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
+        text = event.value
+        self.chat_input.clear()
         self.command_hints.display = False
         self.footer_bar.display = True
 
@@ -136,10 +137,8 @@ class ChatScreen(Screen[None]):
         if result.config_overrides:
             merged = {**self._settings.model_dump(), **result.config_overrides}
             self._settings = Settings.model_validate(merged)
-        self._messages = [{"role": "system", "content": self._system_prompt}]
-        self.message_list.clear_messages()
-        self.message_list.mount(WelcomeMessage())
-        self.footer_bar.set_status("Settings saved, chat reset")
+        self._messages[0] = {"role": "system", "content": self._system_prompt}
+        self.footer_bar.set_status("Settings saved")
 
     def _handle_transcribe(self) -> None:
         self._remove_welcome()
@@ -286,7 +285,8 @@ class ChatScreen(Screen[None]):
             self._transcription_display.remove()
             self._transcription_display = None
         if message.text:
-            self.chat_input.value = message.text
+            self.chat_input.clear()
+            self.chat_input.insert(message.text)
         self.chat_input.disabled = False
         self.chat_input.focus()
         self.footer_bar.set_status("")
