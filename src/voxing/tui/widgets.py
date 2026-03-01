@@ -91,25 +91,19 @@ class TranscriptionDisplay(Widget):
     TranscriptionDisplay > #transcription-text.active {
         color: $text;
     }
-    TranscriptionDisplay > #transcription-hint {
-        color: $text-muted;
-    }
     TranscriptionDisplay > #recording-label {
         color: $error;
     }
     """
-
-    _HINT = "Press Escape to stop"
 
     def __init__(self) -> None:
         self._text = ""
         super().__init__()
 
     def compose(self) -> ComposeResult:
-        """Compose the mic indicator, live text, and stop hint."""
+        """Compose the mic indicator and live text."""
         yield Static("⏺ Recording", id="recording-label")
         yield Static("Listening...", id="transcription-text")
-        yield Static(self._HINT, id="transcription-hint")
 
     def update_text(self, text: str) -> None:
         """Update the live transcription text and switch to active colour."""

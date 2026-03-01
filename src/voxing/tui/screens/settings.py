@@ -8,6 +8,7 @@ from textual.screen import Screen
 from textual.widgets import Input, Static
 
 from voxing.config import Settings
+from voxing.tui.widgets import FooterBar
 
 type SettingKind = Literal["bool", "int", "float", "str"]
 
@@ -208,6 +209,12 @@ class SettingsScreen(Screen[SettingsResult | None]):
     def compose(self) -> ComposeResult:
         yield Input(placeholder="Search settings...", id="search-bar")
         yield SettingsList(self._entries)
+        yield FooterBar()
+
+    def on_mount(self) -> None:
+        self.query_one(FooterBar).set_status(
+            "[dim]esc to save & return  ·  tab to search  ·  ←→ toggle bools[/]"
+        )
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "search-bar":

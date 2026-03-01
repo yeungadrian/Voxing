@@ -45,4 +45,4 @@ class ToolDetailScreen(Screen[None]):
                 if tc.result.strip():
                     parts.append(f"**Output**\n```\n{tc.result.strip()}\n```")
                 yield Markdown("\n\n".join(parts))
-        yield Static("escape to return")
+        yield Static("[dim]esc to return[/]")

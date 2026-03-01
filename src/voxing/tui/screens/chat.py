@@ -81,7 +81,7 @@ class ChatScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self.message_list.mount(WelcomeMessage())
-        self.footer_bar.set_status(f"[{SUCCESS}]Ready[/]")
+        self.footer_bar.set_status("[dim]type / for commands[/]")
         self.chat_input.focus()
 
     def on_screen_resume(self) -> None:
@@ -228,7 +228,10 @@ class ChatScreen(Screen[None]):
             self.footer_bar.set_status, f"[{WARNING}]Loading STT model...[/]"
         )
         model = load_stt(self._settings.model_id)
-        self.app.call_from_thread(self.footer_bar.set_status, "")
+        self.app.call_from_thread(
+            self.footer_bar.set_status,
+            "[dim]esc to stop recording[/]",
+        )
 
         if self._transcribe_cancel.is_set():
             del model
@@ -282,7 +285,11 @@ class ChatScreen(Screen[None]):
             self._current_assistant_msg = None
         self.chat_input.disabled = False
         self.chat_input.focus()
-        self.footer_bar.set_status("")
+        has_tools = bool(self.message_list.query(ToolCallWidget))
+        if has_tools:
+            self.footer_bar.set_status("[dim]ctrl+e to view tool calls[/]")
+        else:
+            self.footer_bar.set_status("[dim]type / for commands[/]")
 
     def on_transcription_update(self, message: TranscriptionUpdate) -> None:
         if self._transcription_display is not None:
@@ -298,4 +305,4 @@ class ChatScreen(Screen[None]):
             self.chat_input.insert(message.text)
         self.chat_input.disabled = False
         self.chat_input.focus()
-        self.footer_bar.set_status("")
+        self.footer_bar.set_status("[dim]enter to send  ·  type / for commands[/]")
