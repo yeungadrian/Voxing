@@ -13,7 +13,7 @@ print("Model loaded.\n")
 
 _EXAMPLES = [
     "What is the capital of France?",
-    "What is 1234 * 5678? Use Python to calculate it.",
+    "What is 1234 * 5678?",
     "Now add 999 to that result.",
 ]
 

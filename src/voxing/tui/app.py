@@ -2,6 +2,7 @@ import mlx.nn as nn
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from textual import work
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.events import Key
 from textual.screen import Screen
 from textual.widgets import Input
@@ -12,7 +13,7 @@ from voxing.llm import load_model as load_llm
 from voxing.parakeet import ParakeetTDT
 from voxing.parakeet import load_model as load_stt
 from voxing.stt import RealtimeTranscriber
-from voxing.tui.screens import SettingsScreen
+from voxing.tui.screens import SettingsScreen, ToolCallData, ToolDetailScreen
 from voxing.tui.theme import CATPPUCCIN_MOCHA
 from voxing.tui.widgets import (
     SLASH_COMMANDS,
@@ -26,6 +27,7 @@ from voxing.tui.widgets import (
     TokenReceived,
     ToolCallFinished,
     ToolCallStarted,
+    ToolCallWidget,
     TranscriptionFinal,
     TranscriptionUpdate,
     WelcomeMessage,
@@ -36,6 +38,9 @@ _DEFAULT_SYSTEM_PROMPT = "You are a helpful voice assistant."
 
 class ChatScreen(Screen[None]):
     CSS_PATH = "styles.tcss"
+    BINDINGS = [
+        Binding("ctrl+e", "show_tools", "Tools", priority=True),
+    ]
 
     def __init__(self) -> None:
         super().__init__()
@@ -48,7 +53,6 @@ class ChatScreen(Screen[None]):
         self._system_prompt = _DEFAULT_SYSTEM_PROMPT
         self._current_assistant_msg: AssistantMessage | None = None
         self._active_transcriber: RealtimeTranscriber | None = None
-        self._current_tool_code = ""
 
     @property
     def footer_bar(self) -> FooterBar:
@@ -152,13 +156,25 @@ class ChatScreen(Screen[None]):
         self._remove_welcome()
         self.chat_input.disabled = True
         self.message_list.add_user_message(text)
-        self._current_assistant_msg = self.message_list.add_assistant_message()
+        self._current_assistant_msg = None
         self.footer_bar.set_status("Generating...")
         self._generate(text)
 
     def on_key(self, event: Key) -> None:
         if event.key == "escape" and self._active_transcriber is not None:
             self._active_transcriber.stop()
+
+    def action_show_tools(self) -> None:
+        """Open the tool detail screen."""
+        widgets = self.message_list.query(ToolCallWidget)
+        if not widgets:
+            self.footer_bar.set_status("No tool calls yet")
+            return
+        tool_calls = [
+            ToolCallData(name=w.tool_name, code=w.code, result=w.result)
+            for w in widgets
+        ]
+        self.app.push_screen(ToolDetailScreen(tool_calls))
 
     # --- Workers ---
 
@@ -188,14 +204,20 @@ class ChatScreen(Screen[None]):
     def _generate(self, user_message: str) -> None:
         """Stream LLM generation."""
         assert self._agent is not None
+        last_tool_code = ""
+        last_tool_name = ""
         for event in self._agent.generate(user_message):
             match event:
                 case TextChunk(content=token):
                     self.post_message(TokenReceived(token))
-                case ToolCallInput(code=code):
-                    self.post_message(ToolCallStarted(code))
+                case ToolCallInput(code=code, name=name):
+                    last_tool_code = code
+                    last_tool_name = name
+                    self.post_message(ToolCallStarted(code, name))
                 case ToolCallOutput(result=result):
-                    self.post_message(ToolCallFinished(self._current_tool_code, result))
+                    self.post_message(
+                        ToolCallFinished(last_tool_code, result, last_tool_name)
+                    )
         self.post_message(GenerationComplete())
 
     @work(thread=True, exclusive=True, group="transcribe")
@@ -214,25 +236,35 @@ class ChatScreen(Screen[None]):
 
     # --- Message handlers ---
 
+    def _ensure_assistant_msg(self) -> AssistantMessage:
+        """Lazily create an assistant message widget."""
+        if self._current_assistant_msg is None:
+            self._current_assistant_msg = self.message_list.add_assistant_message()
+        return self._current_assistant_msg
+
     def on_token_received(self, message: TokenReceived) -> None:
-        if self._current_assistant_msg is not None:
-            self._current_assistant_msg.append_token(message.token)
-            self.message_list.scroll_end(animate=False)
+        msg = self._ensure_assistant_msg()
+        msg.append_token(message.token)
+        self.message_list.scroll_end(animate=False)
 
     def on_tool_call_started(self, message: ToolCallStarted) -> None:
-        self._current_tool_code = message.code
         if self._current_assistant_msg is not None:
             self._current_assistant_msg.finalize()
+            if self._current_assistant_msg.is_empty:
+                self._current_assistant_msg.remove()
+            self._current_assistant_msg = None
         self.footer_bar.set_status("Executing tool...")
 
     def on_tool_call_finished(self, message: ToolCallFinished) -> None:
-        self.message_list.add_tool_call(message.code, message.result)
-        self._current_assistant_msg = self.message_list.add_assistant_message()
+        self.message_list.add_tool_call(message.code, message.result, message.name)
+        self._current_assistant_msg = None
         self.footer_bar.set_status("Generating...")
 
     def on_generation_complete(self, message: GenerationComplete) -> None:
         if self._current_assistant_msg is not None:
             self._current_assistant_msg.finalize()
+            if self._current_assistant_msg.is_empty:
+                self._current_assistant_msg.remove()
             self._current_assistant_msg = None
         self.chat_input.disabled = False
         self.chat_input.focus()

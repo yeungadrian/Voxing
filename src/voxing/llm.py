@@ -47,6 +47,7 @@ class TextChunk:
 @dataclass
 class ToolCallInput:
     code: str
+    name: str
 
 
 @dataclass
@@ -88,7 +89,7 @@ class LocalAgent:
         tokenizer: TokenizerWrapper,
         settings: Settings,
         *,
-        tools_enabled: bool = True,
+        tools_enabled: bool = False,
         system_prompt: str = _DEFAULT_SYSTEM_PROMPT,
     ) -> None:
         self._model = model
@@ -136,7 +137,8 @@ class LocalAgent:
                     if chunk.text == _TOOL_CALL_END:
                         parsed = parse_tool_call(tool_text)
                         code: str = parsed["arguments"]["code"]
-                        yield ToolCallInput(code=code)
+                        name: str = parsed["name"]
+                        yield ToolCallInput(code=code, name=name)
                         result = _execute_python(code)
                         yield ToolCallOutput(result=result)
                         self._messages.append(

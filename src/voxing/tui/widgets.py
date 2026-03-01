@@ -1,8 +1,9 @@
+from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.suggester import SuggestFromList
 from textual.widget import Widget
-from textual.widgets import Input, Static
+from textual.widgets import Input, Markdown, Static
 
 SLASH_COMMANDS: dict[str, str] = {
     "/transcribe": "Start voice transcription",
@@ -25,15 +26,17 @@ class GenerationComplete(Message):
 
 
 class ToolCallStarted(Message):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, name: str) -> None:
         self.code = code
+        self.name = name
         super().__init__()
 
 
 class ToolCallFinished(Message):
-    def __init__(self, code: str, result: str) -> None:
+    def __init__(self, code: str, result: str, name: str) -> None:
         self.code = code
         self.result = result
+        self.name = name
         super().__init__()
 
 
@@ -107,60 +110,66 @@ class UserMessage(Widget):
 class AssistantMessage(Widget):
     DEFAULT_CSS = """
     AssistantMessage {
+        layout: horizontal;
         height: auto;
         padding: 0 1;
-        margin: 0 0 1 0;
+        margin: 0;
+    }
+    AssistantMessage > Static {
+        width: 2;
+    }
+    AssistantMessage > Markdown {
+        width: 1fr;
+        margin: 0;
+        padding: 0;
     }
     """
+
+    ICON = "\u25cf"
 
     def __init__(self) -> None:
         self._text = ""
         self._finalized = False
         super().__init__()
 
-    def render(self) -> str:
-        return self._text + ("" if self._finalized else CURSOR)
+    def compose(self) -> ComposeResult:
+        """Compose the icon and markdown widget."""
+        yield Static(self.ICON)
+        yield Markdown(CURSOR)
+
+    @property
+    def is_empty(self) -> bool:
+        """Check if the message has no text content."""
+        return not self._text.strip()
 
     def append_token(self, token: str) -> None:
         """Append a streaming token and refresh."""
         self._text += token
-        self.refresh()
+        self.query_one(Markdown).update(self._text + CURSOR)
 
     def finalize(self) -> None:
         """Mark generation complete, remove cursor."""
         self._finalized = True
-        self.refresh()
+        self.query_one(Markdown).update(self._text)
 
 
-class ToolCallWidget(Widget):
+class ToolCallWidget(Static):
     DEFAULT_CSS = """
     ToolCallWidget {
         height: auto;
+        margin: 0;
         padding: 0 1;
-        margin: 0 0;
-    }
-    ToolCallWidget.expanded {
-        height: auto;
+        color: $text-muted;
     }
     """
 
-    def __init__(self, code: str, result: str) -> None:
-        self._code = code
-        self._result = result
-        self._expanded = False
-        super().__init__()
+    can_focus = False
 
-    def render(self) -> str:
-        icon = "\u25bc" if self._expanded else "\u25b6"
-        header = f"{icon} tool call"
-        if not self._expanded:
-            return header
-        return f"{header}\n\n{self._code}\n\nOutput:\n{self._result}"
-
-    def on_click(self) -> None:
-        self._expanded = not self._expanded
-        self.toggle_class("expanded")
-        self.refresh()
+    def __init__(self, code: str, result: str, name: str) -> None:
+        self.code = code
+        self.result = result
+        self.tool_name = name
+        super().__init__(f"\u26a1 {name}")
 
 
 class MessageList(VerticalScroll):
@@ -183,9 +192,9 @@ class MessageList(VerticalScroll):
         self.scroll_end(animate=False)
         return msg
 
-    def add_tool_call(self, code: str, result: str) -> None:
+    def add_tool_call(self, code: str, result: str, name: str) -> None:
         """Add a tool call widget."""
-        self.mount(ToolCallWidget(code, result))
+        self.mount(ToolCallWidget(code, result, name))
         self.scroll_end(animate=False)
 
     def clear_messages(self) -> None:
