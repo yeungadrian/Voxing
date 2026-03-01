@@ -22,6 +22,7 @@ from voxing.tui.messages import (
 )
 from voxing.tui.screens.settings import SettingsResult, SettingsScreen
 from voxing.tui.screens.tool_detail import ToolCallData, ToolDetailScreen
+from voxing.tui.theme import ERROR, PRIMARY, SUCCESS, WARNING
 from voxing.tui.widgets import (
     SLASH_COMMANDS,
     AssistantMessage,
@@ -80,7 +81,7 @@ class ChatScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self.message_list.mount(WelcomeMessage())
-        self.footer_bar.set_status("[#a6e3a1]Ready[/]")
+        self.footer_bar.set_status(f"[{SUCCESS}]Ready[/]")
         self.chat_input.focus()
 
     def on_screen_resume(self) -> None:
@@ -113,7 +114,7 @@ class ChatScreen(Screen[None]):
         elif text == "/help":
             self._handle_help()
         elif text.startswith("/"):
-            self.footer_bar.set_status(f"[#f38ba8]Unknown command: {text}[/]")
+            self.footer_bar.set_status(f"[{ERROR}]Unknown command: {text}[/]")
         else:
             self._send_message(text)
 
@@ -121,7 +122,7 @@ class ChatScreen(Screen[None]):
         self.message_list.clear_messages()
         self.message_list.mount(WelcomeMessage())
         self._messages = [{"role": "system", "content": self._system_prompt}]
-        self.footer_bar.set_status("[#a6e3a1]Chat cleared[/]")
+        self.footer_bar.set_status(f"[{SUCCESS}]Chat cleared[/]")
 
     def _handle_settings(self) -> None:
         self.app.push_screen(
@@ -138,13 +139,13 @@ class ChatScreen(Screen[None]):
             merged = {**self._settings.model_dump(), **result.config_overrides}
             self._settings = Settings.model_validate(merged)
         self._messages[0] = {"role": "system", "content": self._system_prompt}
-        self.footer_bar.set_status("[#a6e3a1]Settings saved[/]")
+        self.footer_bar.set_status(f"[{SUCCESS}]Settings saved[/]")
 
     def _handle_transcribe(self) -> None:
         self._remove_welcome()
         self._transcribe_cancel = threading.Event()
         self.chat_input.disabled = True
-        self.footer_bar.set_status("[#f9e2af]Loading STT model...[/]")
+        self.footer_bar.set_status(f"[{WARNING}]Loading STT model...[/]")
         self._transcription_display = TranscriptionDisplay()
         self.message_list.mount(self._transcription_display)
         self.message_list.scroll_end(animate=False)
@@ -160,7 +161,7 @@ class ChatScreen(Screen[None]):
         self.chat_input.disabled = True
         self.message_list.add_user_message(text)
         self._current_assistant_msg = None
-        self.footer_bar.set_status("[#f9e2af]Loading LLM...[/]")
+        self.footer_bar.set_status(f"[{WARNING}]Loading LLM...[/]")
         self._generate(text)
 
     def on_key(self, event: Key) -> None:
@@ -187,11 +188,11 @@ class ChatScreen(Screen[None]):
     def _generate(self, user_message: str) -> None:
         """Load LLM, stream generation, then unload."""
         self.app.call_from_thread(
-            self.footer_bar.set_status, "[#f9e2af]Loading LLM...[/]"
+            self.footer_bar.set_status, f"[{WARNING}]Loading LLM...[/]"
         )
         model, tokenizer = load_llm(self._settings.llm_model_id)
         self.app.call_from_thread(
-            self.footer_bar.set_status, "[#89b4fa]Generating...[/]"
+            self.footer_bar.set_status, f"[{PRIMARY}]Generating...[/]"
         )
 
         agent = LocalAgent(
@@ -224,7 +225,7 @@ class ChatScreen(Screen[None]):
     def _transcribe(self) -> None:
         """Load STT model, run real-time transcription, then unload."""
         self.app.call_from_thread(
-            self.footer_bar.set_status, "[#f9e2af]Loading STT model...[/]"
+            self.footer_bar.set_status, f"[{WARNING}]Loading STT model...[/]"
         )
         model = load_stt(self._settings.model_id)
         self.app.call_from_thread(self.footer_bar.set_status, "")
@@ -266,12 +267,12 @@ class ChatScreen(Screen[None]):
             if self._current_assistant_msg.is_empty:
                 self._current_assistant_msg.remove()
             self._current_assistant_msg = None
-        self.footer_bar.set_status("[#f9e2af]Executing tool...[/]")
+        self.footer_bar.set_status(f"[{WARNING}]Executing tool...[/]")
 
     def on_tool_call_finished(self, message: ToolCallFinished) -> None:
         self.message_list.add_tool_call(message.code, message.result, message.name)
         self._current_assistant_msg = None
-        self.footer_bar.set_status("[#89b4fa]Generating...[/]")
+        self.footer_bar.set_status(f"[{PRIMARY}]Generating...[/]")
 
     def on_generation_complete(self, message: GenerationComplete) -> None:
         if self._current_assistant_msg is not None:

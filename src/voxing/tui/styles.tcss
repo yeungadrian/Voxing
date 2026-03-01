@@ -65,7 +65,7 @@ SettingRow .setting-input {
         color: $primary;
     }
     & > .input--cursor {
-        background: #cdd6f4;
+        background: $foreground;
         color: $surface;
     }
 }

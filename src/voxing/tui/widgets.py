@@ -6,6 +6,8 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Markdown, Static, TextArea
 
+from voxing.tui.theme import PRIMARY
+
 SLASH_COMMANDS: dict[str, str] = {
     "/transcribe": "Start voice transcription",
     "/settings": "Open settings panel",
@@ -29,7 +31,7 @@ class WelcomeMessage(Static):
     """
 
     def __init__(self) -> None:
-        super().__init__("[bold #89b4fa]voxing[/]\n\n[dim]local voice assistant[/]")
+        super().__init__(f"[bold {PRIMARY}]voxing[/]\n\n[dim]local voice assistant[/]")
 
 
 class MemoryDisplay(Static):
@@ -247,7 +249,7 @@ class CommandHints(Static):
         max-height: 6;
         padding: 0 2;
         background: $background;
-        color: $text;
+        color: $text-muted;
     }
     """
 
@@ -261,7 +263,7 @@ class CommandHints(Static):
             self.display = False
             return
         matches = [
-            f"[bold]{cmd}[/]  {desc}"
+            f"{cmd}  {desc}"
             for cmd, desc in SLASH_COMMANDS.items()
             if cmd.startswith(prefix)
         ]
@@ -311,11 +313,24 @@ class ChatInput(TextArea):
             tab_behavior="focus",
         )
 
+    def update_suggestion(self) -> None:
+        """Suggest slash command completion based on current input."""
+        text = self.text
+        if text.startswith("/") and "\n" not in text:
+            for cmd in SLASH_COMMANDS:
+                if cmd.startswith(text) and cmd != text:
+                    self.suggestion = cmd[len(text) :]
+                    return
+        self.suggestion = ""
+
     async def _on_key(self, event: Key) -> None:
-        """Intercept Enter to submit and Tab to prevent focus change."""
+        """Intercept Enter to submit and Tab to accept suggestion or no-op."""
         if event.key == "tab":
             event.prevent_default()
             event.stop()
+            if self.suggestion:
+                self.insert(self.suggestion)
+                self.suggestion = ""
             return
         if event.key == "enter":
             event.prevent_default()
