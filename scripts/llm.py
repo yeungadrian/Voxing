@@ -4,7 +4,7 @@ Usage: uv run scripts/llm.py
 """
 
 from voxing.config import Settings
-from voxing.llm import LocalAgent, TextChunk, ToolCallInput, ToolCallOutput, load_model
+from voxing.llm import LocalAgent, TextChunk, load_model
 
 settings = Settings()
 print("Loading model...")
@@ -21,7 +21,7 @@ agent = LocalAgent(
     model,
     tokenizer,
     settings,
-    messages=[{"role": "system", "content": "You are a helpful assistant."}],
+    messages=[{"role": "system", "content": settings.llm_system_prompt}],
 )
 for user_input in _EXAMPLES:
     print(f"You: {user_input}")
@@ -30,8 +30,4 @@ for user_input in _EXAMPLES:
         match event:
             case TextChunk(content=t):
                 print(t, end="", flush=True)
-            case ToolCallInput(code=c):
-                print(f"\n[running: {c!r}]", end="", flush=True)
-            case ToolCallOutput(result=r):
-                print(f"\n[result: {r!r}] ", end="", flush=True)
     print()

@@ -97,7 +97,6 @@ class TranscriptionDisplay(Widget):
     """
 
     def __init__(self) -> None:
-        self._text = ""
         super().__init__()
 
     def compose(self) -> ComposeResult:
@@ -163,7 +162,6 @@ class AssistantMessage(Widget):
 
     def __init__(self) -> None:
         self._text = ""
-        self._finalized = False
         super().__init__()
 
     def compose(self) -> ComposeResult:
@@ -183,27 +181,7 @@ class AssistantMessage(Widget):
 
     def finalize(self) -> None:
         """Mark generation complete, remove cursor."""
-        self._finalized = True
         self.query_one(Markdown).update(self._text)
-
-
-class ToolCallWidget(Static):
-    DEFAULT_CSS = """
-    ToolCallWidget {
-        height: auto;
-        margin: 0;
-        padding: 0 1;
-        color: $warning;
-    }
-    """
-
-    can_focus = False
-
-    def __init__(self, code: str, result: str, name: str) -> None:
-        self.code = code
-        self.result = result
-        self.tool_name = name
-        super().__init__(f"\u26a1 {name}")
 
 
 class MessageList(VerticalScroll):
@@ -225,11 +203,6 @@ class MessageList(VerticalScroll):
         self.mount(msg)
         self.scroll_end(animate=False)
         return msg
-
-    def add_tool_call(self, code: str, result: str, name: str) -> None:
-        """Add a tool call widget."""
-        self.mount(ToolCallWidget(code, result, name))
-        self.scroll_end(animate=False)
 
     def clear_messages(self) -> None:
         """Remove all child widgets."""

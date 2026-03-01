@@ -4,6 +4,7 @@ from typing import Literal
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
+from textual.events import Key
 from textual.screen import Screen
 from textual.widgets import Input, Static
 
@@ -23,29 +24,15 @@ class SettingEntry:
 
 @dataclass
 class SettingsResult:
-    tools_enabled: bool
-    system_prompt: str
     config_overrides: dict[str, bool | int | float | str] = field(default_factory=dict)
 
 
 _EXCLUDED_SETTINGS = frozenset({"model_id", "llm_model_id", "sample_rate"})
 
 
-def _build_entries(
-    settings: Settings, tools_enabled: bool, system_prompt: str
-) -> list[SettingEntry]:
-    """Build setting entries from runtime state and config fields."""
-    entries: list[SettingEntry] = [
-        SettingEntry(
-            key="tools_enabled", label="Tools enabled", kind="bool", value=tools_enabled
-        ),
-        SettingEntry(
-            key="system_prompt",
-            label="System prompt",
-            kind="str",
-            value=system_prompt,
-        ),
-    ]
+def _build_entries(settings: Settings) -> list[SettingEntry]:
+    """Build setting entries from config fields."""
+    entries: list[SettingEntry] = []
     for name in settings.model_fields:
         if name in _EXCLUDED_SETTINGS:
             continue
@@ -129,29 +116,32 @@ class SettingRow(Static):
 
 class SettingsList(VerticalScroll):
     def __init__(self, entries: list[SettingEntry]) -> None:
-        self._all_entries = entries
+        self._entries = entries
         self._highlight_index: int = 0
         super().__init__()
 
     def on_mount(self) -> None:
-        for entry in self._all_entries:
+        for entry in self._entries:
             self.mount(SettingRow(entry))
         self._update_highlight()
 
     def filter(self, query: str) -> None:
         """Filter visible rows by query string."""
-        for child in list(self.query(SettingRow)):
-            child.remove()
         q = query.lower()
-        for entry in self._all_entries:
-            if q in entry.label.lower() or q in entry.key.lower():
-                self.mount(SettingRow(entry))
+        for row in self.query(SettingRow):
+            row.display = (
+                not q or q in row.entry.label.lower() or q in row.entry.key.lower()
+            )
         self._highlight_index = 0
         self._update_highlight()
 
+    def _visible_rows(self) -> list[SettingRow]:
+        """Return only the currently visible (non-hidden) rows."""
+        return [row for row in self.query(SettingRow) if row.display]
+
     def _update_highlight(self) -> None:
         """Sync the -highlight class to the current index."""
-        rows = list(self.query(SettingRow))
+        rows = self._visible_rows()
         for i, row in enumerate(rows):
             if i == self._highlight_index:
                 row.add_class("-highlight")
@@ -171,7 +161,7 @@ class SettingsList(VerticalScroll):
 
     def move_down(self) -> SettingRow | None:
         """Move highlight down one row, returning the new row."""
-        rows = list(self.query(SettingRow))
+        rows = self._visible_rows()
         if self._highlight_index < len(rows) - 1:
             self._highlight_index += 1
             self._update_highlight()
@@ -184,7 +174,7 @@ class SettingsList(VerticalScroll):
     @property
     def highlighted_row(self) -> SettingRow | None:
         """Return the currently highlighted SettingRow."""
-        rows = list(self.query(SettingRow))
+        rows = self._visible_rows()
         if 0 <= self._highlight_index < len(rows):
             return rows[self._highlight_index]
         return None
@@ -196,13 +186,9 @@ class SettingsScreen(Screen[SettingsResult | None]):
         Binding("tab", "focus_search", "Search", priority=True),
     ]
 
-    def __init__(
-        self, settings: Settings, tools_enabled: bool, system_prompt: str
-    ) -> None:
+    def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._tools_enabled = tools_enabled
-        self._system_prompt = system_prompt
-        self._entries = _build_entries(settings, tools_enabled, system_prompt)
+        self._entries = _build_entries(settings)
         self._editing = False
         super().__init__()
 
@@ -227,18 +213,11 @@ class SettingsScreen(Screen[SettingsResult | None]):
                 row.commit_edit()
             self._editing = False
         overrides: dict[str, bool | int | float | str] = {}
-        tools = self._tools_enabled
-        prompt = self._system_prompt
         for entry in self._entries:
-            if entry.key == "tools_enabled":
-                tools = bool(entry.value)
-            elif entry.key == "system_prompt":
-                prompt = str(entry.value)
-            else:
-                original = getattr(self._settings, entry.key)
-                if entry.value != original:
-                    overrides[entry.key] = entry.value
-        self.dismiss(SettingsResult(tools, prompt, overrides))
+            original = getattr(self._settings, entry.key)
+            if entry.value != original:
+                overrides[entry.key] = entry.value
+        self.dismiss(SettingsResult(overrides))
 
     def action_focus_search(self) -> None:
         search = self.query_one("#search-bar", Input)
@@ -263,7 +242,7 @@ class SettingsScreen(Screen[SettingsResult | None]):
             row.begin_edit()
             self._editing = True
 
-    def on_key(self, event) -> None:  # noqa: ANN001
+    def on_key(self, event: Key) -> None:
         settings_list = self.query_one(SettingsList)
         search = self.query_one("#search-bar", Input)
 

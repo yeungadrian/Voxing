@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     draft_interval_secs: float = 0.5
 
     llm_model_id: str = "LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit"
+    llm_system_prompt: str = "You are a helpful voice assistant."
     llm_max_tokens: int = 4096
     llm_temperature: float = 0.1
     llm_top_k: int = 50
