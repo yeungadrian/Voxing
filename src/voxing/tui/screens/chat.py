@@ -42,6 +42,7 @@ class ChatScreen(Screen[None]):
         ]
         self._current_assistant_msg: AssistantMessage | None = None
         self._active_transcriber: RealtimeTranscriber | None = None
+        self._transcriber_lock = threading.Lock()
         self._transcription_display: TranscriptionDisplay | None = None
         self._transcribe_cancel: threading.Event = threading.Event()
 
@@ -154,8 +155,10 @@ class ChatScreen(Screen[None]):
     def on_key(self, event: Key) -> None:
         if event.key == "escape" and not self._transcribe_cancel.is_set():
             self._transcribe_cancel.set()
-            if self._active_transcriber is not None:
-                self._active_transcriber.stop()
+            with self._transcriber_lock:
+                transcriber = self._active_transcriber
+            if transcriber is not None:
+                transcriber.stop()
             # If _active_transcriber is None, ESC arrived before the worker assigned
             # it (between model load and transcriber construction). _transcribe_cancel
             # is already set so the worker will abort at its early-exit check.
@@ -165,58 +168,71 @@ class ChatScreen(Screen[None]):
     @work(thread=True, exclusive=True, group="generate")
     def _generate(self, user_message: str) -> None:
         """Load LLM, stream generation, then unload."""
-        self.app.call_from_thread(
-            self.footer_bar.set_status, f"[{WARNING}]Loading LLM...[/]"
-        )
-        model, tokenizer = load_llm(self._settings.llm_model_id)
-        self.app.call_from_thread(
-            self.footer_bar.set_status, f"[{PRIMARY}]Generating...[/]"
-        )
+        model = None
+        error: str | None = None
+        try:
+            self.app.call_from_thread(
+                self.footer_bar.set_status, f"[{WARNING}]Loading LLM...[/]"
+            )
+            model, tokenizer = load_llm(self._settings.llm_model_id)
+            self.app.call_from_thread(
+                self.footer_bar.set_status, f"[{PRIMARY}]Generating...[/]"
+            )
 
-        agent = LocalAgent(
-            model,
-            tokenizer,
-            self._settings,
-            self._messages,
-        )
-        for event in agent.generate(user_message):
-            match event:
-                case TextChunk(content=token):
-                    self.post_message(TokenReceived(token))
+            agent = LocalAgent(
+                model,
+                tokenizer,
+                self._settings,
+                list(self._messages),
+            )
+            for event in agent.generate(user_message):
+                match event:
+                    case TextChunk(content=token):
+                        self.post_message(TokenReceived(token))
 
-        del agent, model, tokenizer
-        mx.clear_cache()
-        self.post_message(GenerationComplete())
+            self._messages[:] = agent.messages
+        except Exception as exc:
+            error = str(exc) or type(exc).__name__
+        finally:
+            del model
+            mx.clear_cache()
+            self.post_message(GenerationComplete(error=error))
 
     @work(thread=True, exclusive=True, group="transcribe")
     def _transcribe(self) -> None:
         """Load STT model, run real-time transcription, then unload."""
-        self.app.call_from_thread(
-            self.footer_bar.set_status, f"[{WARNING}]Loading STT model...[/]"
-        )
-        model = load_stt(self._settings.model_id)
-        self.app.call_from_thread(
-            self.footer_bar.set_status,
-            "[dim]esc to stop recording[/]",
-        )
+        model = None
+        last_text = ""
+        error: str | None = None
+        try:
+            self.app.call_from_thread(
+                self.footer_bar.set_status, f"[{WARNING}]Loading STT model...[/]"
+            )
+            model = load_stt(self._settings.model_id)
+            self.app.call_from_thread(
+                self.footer_bar.set_status,
+                "[dim]esc to stop recording[/]",
+            )
 
-        if self._transcribe_cancel.is_set():
+            if self._transcribe_cancel.is_set():
+                return
+
+            transcriber = RealtimeTranscriber(model, self._settings)
+            with self._transcriber_lock:
+                self._active_transcriber = transcriber
+            try:
+                with transcriber:
+                    for last_text in transcriber:
+                        self.post_message(TranscriptionUpdate(last_text))
+            finally:
+                with self._transcriber_lock:
+                    self._active_transcriber = None
+        except Exception as exc:
+            error = str(exc) or type(exc).__name__
+        finally:
             del model
             mx.clear_cache()
-            self.post_message(TranscriptionFinal(""))
-            return
-
-        transcriber = RealtimeTranscriber(model, self._settings)
-        self._active_transcriber = transcriber
-        with transcriber:
-            last_text = ""
-            for last_text in transcriber:
-                self.post_message(TranscriptionUpdate(last_text))
-        self._active_transcriber = None
-        self.post_message(TranscriptionFinal(last_text))
-
-        del transcriber, model
-        mx.clear_cache()
+            self.post_message(TranscriptionFinal(last_text, error=error))
 
     # --- Message handlers ---
 
@@ -239,7 +255,10 @@ class ChatScreen(Screen[None]):
             self._current_assistant_msg = None
         self.chat_input.disabled = False
         self.chat_input.focus()
-        self.footer_bar.set_status("[dim]type / for commands[/]")
+        if message.error:
+            self.footer_bar.set_status(f"[{ERROR}]Generation error: {message.error}[/]")
+        else:
+            self.footer_bar.set_status("[dim]type / for commands[/]")
 
     def on_transcription_update(self, message: TranscriptionUpdate) -> None:
         if self._transcription_display is not None:
@@ -255,4 +274,9 @@ class ChatScreen(Screen[None]):
             self.chat_input.insert(message.text)
         self.chat_input.disabled = False
         self.chat_input.focus()
-        self.footer_bar.set_status("[dim]enter to send  ·  type / for commands[/]")
+        if message.error:
+            self.footer_bar.set_status(
+                f"[{ERROR}]Transcription error: {message.error}[/]"
+            )
+        else:
+            self.footer_bar.set_status("[dim]enter to send  ·  type / for commands[/]")

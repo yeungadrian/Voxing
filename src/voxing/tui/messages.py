@@ -8,7 +8,9 @@ class TokenReceived(Message):
 
 
 class GenerationComplete(Message):
-    pass
+    def __init__(self, error: str | None = None) -> None:
+        self.error = error
+        super().__init__()
 
 
 class TranscriptionUpdate(Message):
@@ -18,6 +20,7 @@ class TranscriptionUpdate(Message):
 
 
 class TranscriptionFinal(Message):
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, error: str | None = None) -> None:
         self.text = text
+        self.error = error
         super().__init__()

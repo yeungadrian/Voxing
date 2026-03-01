@@ -49,6 +49,11 @@ class LocalAgent:
         self._settings = settings
         self._messages = messages
 
+    @property
+    def messages(self) -> list[Message]:
+        """Return the current conversation history."""
+        return self._messages
+
     def generate(self, user_message: str) -> Iterator[TextChunk]:
         self._messages.append({"role": "user", "content": user_message})
 

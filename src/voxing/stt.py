@@ -23,13 +23,17 @@ def _stream_mic_chunks(
     sample_rate: int,
     chunk_samples: int,
 ) -> None:
-    """Read audio from mic; put None sentinel when stop is set."""
-    with sd.InputStream(samplerate=sample_rate, channels=1, dtype=np.float32) as stream:
-        while not stop_event.is_set():
-            chunk, _ = stream.read(chunk_samples)
-            chunk_queue.put(chunk[:, 0])
-    # InputStream is closed before the sentinel so no further chunks can arrive
-    chunk_queue.put(None)
+    """Read audio from mic; put None sentinel when stop is set or on error."""
+    try:
+        with sd.InputStream(
+            samplerate=sample_rate, channels=1, dtype=np.float32
+        ) as stream:
+            while not stop_event.is_set():
+                chunk, _ = stream.read(chunk_samples)
+                chunk_queue.put(chunk[:, 0])
+    finally:
+        # Always send sentinel so __iter__ is never left blocking indefinitely
+        chunk_queue.put(None)
 
 
 class RealtimeTranscriber:
@@ -92,7 +96,10 @@ class RealtimeTranscriber:
         buffer_samples = 0
         chunks_since_decode = 0
 
-        while (chunk := self._chunk_queue.get()) is not None:
+        while True:
+            chunk = self._chunk_queue.get()
+            if chunk is None:
+                break
             buffer.append(chunk)
             buffer_samples += len(chunk)
             chunks_since_decode += 1
