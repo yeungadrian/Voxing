@@ -156,6 +156,9 @@ class ChatScreen(Screen[None]):
             self._transcribe_cancel.set()
             if self._active_transcriber is not None:
                 self._active_transcriber.stop()
+            # If _active_transcriber is None, ESC arrived before the worker assigned
+            # it (between model load and transcriber construction). _transcribe_cancel
+            # is already set so the worker will abort at its early-exit check.
 
     # --- Workers ---
 

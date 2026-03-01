@@ -28,6 +28,7 @@ def _stream_mic_chunks(
         while not stop_event.is_set():
             chunk, _ = stream.read(chunk_samples)
             chunk_queue.put(chunk[:, 0])
+    # InputStream is closed before the sentinel so no further chunks can arrive
     chunk_queue.put(None)
 
 
@@ -95,6 +96,10 @@ class RealtimeTranscriber:
             buffer.append(chunk)
             buffer_samples += len(chunk)
             chunks_since_decode += 1
+
+            # Stop is set: drain remaining queued chunks then flush once at the end
+            if self._stop_event.is_set():
+                continue
 
             # Accumulate until minimum audio available
             if buffer_samples < self._min_audio_samples:
