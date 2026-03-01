@@ -330,6 +330,7 @@ class ChatInput(TextArea):
         border-bottom: solid $panel;
         padding: 0 2;
         background: $background;
+        scrollbar-size: 0 0;
     }
     ChatInput:focus {
         border: none;
@@ -340,9 +341,6 @@ class ChatInput(TextArea):
     }
     ChatInput .text-area--cursor-line {
         background: transparent;
-    }
-    ChatInput .text-area--scrollbar {
-        width: 0;
     }
     """
 
