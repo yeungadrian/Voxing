@@ -192,6 +192,7 @@ class SettingsList(VerticalScroll):
 class SettingsScreen(Screen[SettingsResult | None]):
     BINDINGS = [
         Binding("escape", "save_and_dismiss", "Save & back", priority=True),
+        Binding("tab", "focus_search", "Search", priority=True),
     ]
 
     def __init__(
@@ -232,6 +233,14 @@ class SettingsScreen(Screen[SettingsResult | None]):
                     overrides[entry.key] = entry.value
         self.dismiss(SettingsResult(tools, prompt, overrides))
 
+    def action_focus_search(self) -> None:
+        search = self.query_one("#search-bar", Input)
+        if search.has_focus:
+            self.query_one(SettingsList).focus()
+        else:
+            self._commit_current_edit()
+            search.focus()
+
     def _commit_current_edit(self) -> None:
         """Commit the current edit if one is active."""
         if not self._editing:
@@ -261,10 +270,6 @@ class SettingsScreen(Screen[SettingsResult | None]):
                 )
                 self._auto_edit_row(new_row)
                 event.prevent_default()
-            elif event.key == "tab":
-                self._commit_current_edit()
-                search.focus()
-                event.prevent_default()
             return
 
         if not search.has_focus:
@@ -282,9 +287,6 @@ class SettingsScreen(Screen[SettingsResult | None]):
                 row = settings_list.highlighted_row
                 if row is not None and row.entry.kind == "bool":
                     row.toggle_bool()
-                event.prevent_default()
-            elif event.key == "tab":
-                search.focus()
                 event.prevent_default()
             elif event.is_printable and event.character:
                 search.focus()

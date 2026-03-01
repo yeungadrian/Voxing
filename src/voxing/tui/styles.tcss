@@ -33,7 +33,7 @@ SettingRow Horizontal {
 }
 
 SettingRow.-highlight {
-    background: $surface;
+    color: #89b4fa;
 }
 
 .setting-label {
@@ -42,7 +42,6 @@ SettingRow.-highlight {
 
 .setting-value {
     width: 1fr;
-    color: $text-muted;
 }
 
 SettingRow.-editing .setting-value {
@@ -53,6 +52,22 @@ SettingRow .setting-input {
     display: none;
     height: 1;
     border: none;
+    padding: 0;
+    background: $background;
+    color: #89b4fa;
+    &:focus {
+        background: $background;
+        background-tint: transparent;
+        border: none;
+    }
+    & > .input--selection {
+        background: #313244;
+        color: #89b4fa;
+    }
+    & > .input--cursor {
+        background: #cdd6f4;
+        color: $surface;
+    }
 }
 
 SettingRow.-editing .setting-input {
