@@ -1,0 +1,75 @@
+SettingsScreen {
+    background: $background;
+}
+
+#search-bar {
+    dock: top;
+    border: none;
+    border-top: solid $panel;
+    border-bottom: solid $panel;
+    padding: 0 2;
+    background: $background;
+}
+
+#search-bar:focus {
+    border: none;
+    border-top: solid $panel;
+    border-bottom: solid $panel;
+    background: $background;
+    background-tint: transparent;
+}
+
+SettingsList {
+    background: $background;
+}
+
+SettingRow {
+    height: 1;
+    padding: 0 2;
+}
+
+SettingRow Horizontal {
+    height: 1;
+}
+
+SettingRow.-highlight {
+    color: $primary;
+}
+
+.setting-label {
+    width: 30;
+}
+
+.setting-value {
+    width: 1fr;
+}
+
+SettingRow.-editing .setting-value {
+    display: none;
+}
+
+SettingRow .setting-input {
+    display: none;
+    height: 1;
+    border: none;
+    padding: 0;
+    background: $background;
+    color: $primary;
+    &:focus {
+        background: $background;
+        background-tint: transparent;
+        border: none;
+    }
+    & > .input--selection {
+        background: $surface;
+        color: $primary;
+    }
+    & > .input--cursor {
+        background: $foreground;
+        color: $surface;
+    }
+}
+
+SettingRow.-editing .setting-input {
+    display: block;
+}

@@ -1,12 +1,8 @@
-"""Entry point for Voxinging TUI application."""
-
-from voxing.app import VoxingApp
+from voxing.tui import VoxingApp
 
 
 def main() -> None:
-    """Run the Voxing TUI application."""
-    app = VoxingApp()
-    app.run()
+    VoxingApp().run()
 
 
 if __name__ == "__main__":
