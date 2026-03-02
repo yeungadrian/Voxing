@@ -3,7 +3,7 @@ name = "voxing"
 version = "0.1.4"
 description = "Voice assistant TUI powered by local MLX models"
 readme = "README.md"
-requires-python = "==3.13.*"
+requires-python = ">=3.12,<3.15"
 authors = [{ name = "yeungadrian" }]
 license = "MIT"
 classifiers = [
