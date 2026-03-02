@@ -1,5 +1,5 @@
+import mlx.core as mx
 import numpy as np
-import psutil
 from rich.segment import Segment
 from rich.style import Style
 from textual.app import ComposeResult
@@ -121,12 +121,11 @@ class MemoryDisplay(Static):
 
     def on_mount(self) -> None:
         """Start polling memory usage every second."""
-        self._process = psutil.Process()
         self.set_interval(1.0, self._update)
 
     def _update(self) -> None:
-        """Refresh displayed memory from process RSS."""
-        mb = self._process.memory_info().rss / 1024 / 1024
+        """Refresh displayed memory from MLX active memory."""
+        mb = mx.get_active_memory() / 1024 / 1024
         self.update(f"{mb:.0f} MB")
 
 
