@@ -2,7 +2,7 @@
 
 import numpy as np
 
-VIZ_HEIGHT = 8
+VIZ_HEIGHT = 6
 LOG_K = 20.0
 NOISE_GATE = 0.005
 NUM_BARS = 6
