@@ -29,7 +29,7 @@ class VizWidget(Widget):
     DEFAULT_CSS = """
     VizWidget {
         height: 3;
-        width: 1fr;
+        width: 33%;
     }
     """
 
