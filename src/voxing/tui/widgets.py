@@ -1,5 +1,3 @@
-from collections import deque
-
 import mlx.core as mx
 import numpy as np
 from rich.segment import Segment
@@ -16,140 +14,80 @@ from voxing.tui.theme import PRIMARY
 from voxing.viz import (
     BLOCKS,
     BRAILLE_BASE,
-    SPEC_BANDS,
-    SUB_ROW_BITS,
-    VIZ_WINDOW,
-    bar_columns,
-    build_spec_state,
-    compute_column,
-    peaks,
+    OscilloscopeViz,
+    SpectrogramViz,
+    SpectrumViz,
+    Visualizer,
+    VizFrame,
+    WaveformViz,
 )
 
-_TUI_VIZ_HEIGHT = 2
 
-
-class AudioVisualizer(Widget):
-    """Renders live audio as a left-aligned bottom-up waveform."""
+class VizWidget(Widget):
+    """Generic visualizer widget that renders any Visualizer implementation."""
 
     DEFAULT_CSS = """
-    AudioVisualizer {
-        height: 2;
+    VizWidget {
+        height: 3;
         width: 1fr;
-        max-width: 20%;
     }
     """
 
-    def __init__(self) -> None:
+    def __init__(self, viz: Visualizer) -> None:
         super().__init__()
-        self._buf = np.empty(0, dtype=np.float32)
-        self._cached_amps: list[float] = []
-        self._cached_columns: list[int | None] = []
-        self._cached_width: int = 0
+        self._viz = viz
+        self._frame: VizFrame | None = None
         self._style = Style.parse(PRIMARY)
+        self._color_cache: dict[str, Style] = {}
 
     def on_mount(self) -> None:
         """Start periodic refresh to animate the visualizer."""
         self.set_interval(0.1, self._tick)
 
     def _tick(self) -> None:
-        """Recompute peaks once per frame then refresh."""
-        self._cached_amps = peaks(self._buf)
-        width = self.size.width or 0
-        if width != self._cached_width:
-            self._cached_width = width
-            self._cached_columns = bar_columns(width)
+        """Recompute the frame then refresh."""
+        self._frame = self._viz.render(self.size.width or 1, self.size.height or 3)
         self.refresh()
 
     def push_chunk(self, chunk: np.ndarray) -> None:
-        """Append audio and trim to the visualisation window."""
-        self._buf = np.concatenate([self._buf, chunk.astype(np.float32)])[-VIZ_WINDOW:]
+        """Forward an audio chunk to the underlying visualizer."""
+        self._viz.push(chunk)
+
+    def _color_style(self, color: str) -> Style:
+        """Get or create a cached Style for a hex color."""
+        style = self._color_cache.get(color)
+        if style is None:
+            style = Style.parse(color)
+            self._color_cache[color] = style
+        return style
 
     def render_line(self, y: int) -> Strip:
-        """Render one terminal row as a bottom-up waveform."""
-        total_dots = (self.size.height or _TUI_VIZ_HEIGHT) * 4
+        """Render one terminal row from the current frame."""
+        frame = self._frame
+        if frame is None or y >= len(frame.grid):
+            return Strip([Segment(" " * (self.size.width or 1))])
 
+        row = frame.grid[y]
+        colors = frame.colors
+        color_row = colors[y] if colors is not None and y < len(colors) else None
         segments: list[Segment] = []
-        for bar_idx in self._cached_columns:
-            if bar_idx is None:
-                segments.append(Segment(" "))
-                continue
-            amp = (
-                self._cached_amps[bar_idx] if bar_idx < len(self._cached_amps) else 0.0
-            )
-            bar_dots = amp * total_dots
-            bits = 0
-            for sub in range(4):
-                dot = y * 4 + sub
-                if total_dots - 1 - dot < bar_dots:
-                    bits |= SUB_ROW_BITS[sub]
-            if bits:
-                segments.append(Segment(chr(BRAILLE_BASE + bits), self._style))
-            else:
-                segments.append(Segment(" "))
 
-        return Strip(segments)
-
-
-class SpectrogramVisualizer(Widget):
-    """Renders live audio as a rolling spectrogram."""
-
-    DEFAULT_CSS = """
-    SpectrogramVisualizer {
-        height: 6;
-        width: 1fr;
-    }
-    """
-
-    def __init__(
-        self,
-        sample_rate: int,
-        chunk_duration: float,
-        chunks_per_column: int = 2,
-    ) -> None:
-        super().__init__()
-        chunk_samples = int(sample_rate * chunk_duration * chunks_per_column)
-        self._state = build_spec_state(sample_rate, chunk_samples)
-        self._columns: deque[np.ndarray] = deque(maxlen=200)
-        self._pending: list[np.ndarray] = []
-        self._chunks_per_column = chunks_per_column
-        self._styles = tuple(
-            Style.parse(f"#{55 + level * 25:02x}b4fa") for level in range(9)
-        )
-
-    def on_mount(self) -> None:
-        """Start periodic refresh to animate the spectrogram."""
-        self.set_interval(0.1, self._tick)
-
-    def _tick(self) -> None:
-        """Refresh the widget."""
-        self.refresh()
-
-    def push_chunk(self, chunk: np.ndarray) -> None:
-        """Accumulate chunks and emit a spectrogram column when enough are gathered."""
-        self._pending.append(chunk)
-        if len(self._pending) >= self._chunks_per_column:
-            combined = np.concatenate(self._pending)
-            self._pending.clear()
-            self._columns.append(compute_column(combined, self._state))
-
-    def render_line(self, y: int) -> Strip:
-        """Render one row of the spectrogram."""
-        width = self.size.width or 1
-        band_idx = SPEC_BANDS - 1 - y
-        if band_idx < 0 or band_idx >= SPEC_BANDS:
-            return Strip([Segment(" " * width)])
-
-        cols = self._columns
-        n = len(cols)
-        segments: list[Segment] = []
-        start = max(0, n - width)
-        for i in range(start, n):
-            val = float(cols[i][band_idx])
-            level = min(int(val * 8), 8)
-            segments.append(Segment(BLOCKS[level], self._styles[level]))
-        pad = width - (n - start)
-        if pad > 0:
-            segments.append(Segment(" " * pad))
+        if frame.mode == "braille":
+            for bits in row:
+                if bits:
+                    segments.append(Segment(chr(BRAILLE_BASE + bits), self._style))
+                else:
+                    segments.append(Segment(" "))
+        else:
+            for ci, level in enumerate(row):
+                if level == 0:
+                    segments.append(Segment(" "))
+                elif color_row is not None:
+                    segments.append(
+                        Segment(BLOCKS[level], self._color_style(color_row[ci]))
+                    )
+                else:
+                    segments.append(Segment(BLOCKS[level], self._style))
 
         return Strip(segments)
 
@@ -248,19 +186,24 @@ class TranscriptionDisplay(Widget):
         chunk_duration: float = 0.1,
     ) -> None:
         super().__init__()
-        self._visualizer: AudioVisualizer | SpectrogramVisualizer | None
-        if audio_visual == "spectrogram":
-            self._visualizer = SpectrogramVisualizer(sample_rate, chunk_duration)
-        elif audio_visual == "waveform":
-            self._visualizer = AudioVisualizer()
-        else:
-            self._visualizer = None
+        viz: Visualizer | None = None
+        chunk_samples = int(sample_rate * chunk_duration)
+        match audio_visual:
+            case "waveform":
+                viz = WaveformViz()
+            case "spectrogram":
+                viz = SpectrogramViz(sample_rate, chunk_samples)
+            case "oscilloscope":
+                viz = OscilloscopeViz()
+            case "spectrum":
+                viz = SpectrumViz(sample_rate, chunk_samples)
+        self._visualizer = VizWidget(viz) if viz else None
 
     def compose(self) -> ComposeResult:
         """Compose the visualizer, mic indicator and live text."""
         if self._visualizer is not None:
             yield self._visualizer
-        yield Static("⏺ Recording", id="recording-label")
+        yield Static("\u23fa Recording", id="recording-label")
         yield Static("Listening...", id="transcription-text")
 
     def update_text(self, text: str) -> None:
