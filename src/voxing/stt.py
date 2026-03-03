@@ -22,6 +22,7 @@ def _stream_mic_chunks(
     stop_event: threading.Event,
     sample_rate: int,
     chunk_samples: int,
+    on_chunk: Callable[[np.ndarray], None] | None = None,
 ) -> None:
     """Read audio from mic; put None sentinel when stop is set or on error."""
     try:
@@ -30,7 +31,10 @@ def _stream_mic_chunks(
         ) as stream:
             while not stop_event.is_set():
                 chunk, _ = stream.read(chunk_samples)
-                chunk_queue.put(chunk[:, 0])
+                mono = chunk[:, 0]
+                chunk_queue.put(mono)
+                if on_chunk is not None:
+                    on_chunk(mono)
     finally:
         # Always send sentinel so __iter__ is never left blocking indefinitely
         chunk_queue.put(None)
@@ -84,6 +88,7 @@ class RealtimeTranscriber:
                 self._stop_event,
                 self._settings.sample_rate,
                 self._chunk_samples,
+                self._on_chunk,
             ),
         )
         self._thread.start()
@@ -109,9 +114,6 @@ class RealtimeTranscriber:
             buffer.append(chunk)
             buffer_samples += len(chunk)
             chunks_since_decode += 1
-
-            if self._on_chunk is not None:
-                self._on_chunk(chunk)
 
             # Stop is set: drain remaining queued chunks then flush once at the end
             if self._stop_event.is_set():

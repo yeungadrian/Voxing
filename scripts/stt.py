@@ -1,10 +1,13 @@
-"""Test the STT pipeline with a live spectrogram visualisation.
+"""Test the STT pipeline with a live audio visualisation.
 
 Usage: uv run scripts/stt.py
+
+Set _VIZ_MODE to "waveform" or "spectrogram" to switch visualisations.
 """
 
 import threading
 from collections import deque
+from typing import Literal
 
 import numpy as np
 from rich.console import Group
@@ -15,45 +18,52 @@ from rich.text import Text
 from voxing.config import Settings
 from voxing.parakeet import load_model
 from voxing.stt import RealtimeTranscriber
-from voxing.tui.theme import FOREGROUND
+from voxing.tui.theme import FOREGROUND, PRIMARY
+from voxing.viz import (
+    BLOCKS,
+    BRAILLE_BASE,
+    SPEC_BANDS,
+    SUB_ROW_BITS,
+    VIZ_HEIGHT,
+    SpectrogramState,
+    bar_columns,
+    build_spec_state,
+    compute_column,
+    peaks,
+)
 
+_VIZ_MODE: Literal["waveform", "spectrogram"] = "spectrogram"
 _REFRESH_HZ = 30
 
-# Spectrogram parameters
-_SPEC_BANDS = 12  # frequency rows
-_FREQ_LO = 80.0  # Hz — lowest band edge
-_FREQ_HZ = 8000.0  # Hz — highest band edge (speech tops out ~4 kHz)
-_DECAY = 0.92  # per-frame exponential decay for the rolling max normaliser
-_BLOCKS = " ▁▂▃▄▅▆▇█"  # 9 levels: index 0 = silence, 8 = full
 
-
-def _build_spec_state(sample_rate: int, chunk_samples: int) -> dict:
-    """Pre-compute all fixed FFT artefacts so the hot path is allocation-free."""
-    window = np.hanning(chunk_samples).astype(np.float32)
-    freqs = np.fft.rfftfreq(chunk_samples, 1.0 / sample_rate)
-    edges = np.logspace(np.log10(_FREQ_LO), np.log10(_FREQ_HZ), _SPEC_BANDS + 1)
-    bin_edges = [int(np.searchsorted(freqs, e)) for e in edges]
-    return {"window": window, "bin_edges": bin_edges, "rolling_max": 1e-6}
-
-
-def _compute_column(chunk: np.ndarray, state: dict) -> np.ndarray:
-    """Return a (_SPEC_BANDS,) float32 array of log-compressed band energies.
-
-    Runs entirely before the lock is acquired — no allocation inside the lock.
-    """
-    mag = np.abs(np.fft.rfft(chunk * state["window"]))
-    edges = state["bin_edges"]
-    bands = np.array(
-        [float(np.mean(mag[edges[i] : edges[i + 1]])) for i in range(_SPEC_BANDS)],
-        dtype=np.float32,
-    )
-    # Update rolling max with exponential decay so display stays responsive
-    peak = float(bands.max())
-    state["rolling_max"] = max(state["rolling_max"] * _DECAY, peak, 1e-6)
-    bands /= state["rolling_max"]
-    # Log-compress for perceptual linearity
-    bands = np.sqrt(np.log1p(bands * 20.0) / np.log1p(20.0))
-    return np.clip(bands, 0.0, 1.0)
+def _render_waveform(samples: deque[float], width: int, height: int) -> str:
+    """Return a Rich-markup multi-line string for a braille waveform."""
+    amps = peaks(np.array(samples, dtype=np.float32))
+    columns = bar_columns(width)
+    total_dots = height * 4
+    center = total_dots / 2.0
+    lines: list[str] = []
+    for y in range(height):
+        row_chars: list[str] = []
+        for bar_idx in columns:
+            if bar_idx is None:
+                row_chars.append(" ")
+                continue
+            amp = amps[bar_idx]
+            half_extent = amp * center
+            top = center - half_extent
+            bottom = center + half_extent
+            bits = 0
+            for sub in range(4):
+                dot_pos = y * 4 + sub
+                if top <= dot_pos < bottom:
+                    bits |= SUB_ROW_BITS[sub]
+            if bits:
+                row_chars.append(f"[{PRIMARY}]{chr(BRAILLE_BASE + bits)}[/]")
+            else:
+                row_chars.append(" ")
+        lines.append("".join(row_chars))
+    return "\n".join(lines)
 
 
 def _render_spectrogram(columns: list[np.ndarray], height: int) -> str:
@@ -61,7 +71,7 @@ def _render_spectrogram(columns: list[np.ndarray], height: int) -> str:
 
     Rows: frequency (high at top, low at bottom).
     Columns: time (oldest at left, newest at right).
-    Each cell is one of _BLOCKS coloured by magnitude.
+    Each cell is one of BLOCKS coloured by magnitude.
     """
     if not columns:
         return "\n".join(" " for _ in range(height))
@@ -74,24 +84,31 @@ def _render_spectrogram(columns: list[np.ndarray], height: int) -> str:
             if level == 0:
                 chars.append(" ")
             else:
-                # Interpolate colour brightness: dim PRIMARY at level 1, full at 8
-                brightness = int(55 + level * 25)  # 80..255
-                chars.append(f"[#{brightness:02x}b4fa]{_BLOCKS[level]}[/]")
+                brightness = int(55 + level * 25)  # dim → bright blue
+                chars.append(f"[#{brightness:02x}b4fa]{BLOCKS[level]}[/]")
         lines.append("".join(chars))
     return "\n".join(lines)
 
 
 def _make_renderable(
-    columns: deque[np.ndarray],
-    columns_lock: threading.Lock,
-    transcription: list[str],
     width: int,
+    transcription: list[str],
+    samples: deque[float],
+    samples_lock: threading.Lock,
+    spec_columns: deque[np.ndarray],
+    spec_columns_lock: threading.Lock,
 ) -> Group:
     """Build the Rich renderable for one Live refresh."""
-    with columns_lock:
-        snap = list(columns)
-    spec_str = _render_spectrogram(snap, _SPEC_BANDS)
-    spec_text = Text.from_markup(spec_str)
+    if _VIZ_MODE == "waveform":
+        with samples_lock:
+            snap = deque(samples)
+        viz_str = _render_waveform(snap, width, VIZ_HEIGHT)
+    else:
+        with spec_columns_lock:
+            snap_cols = list(spec_columns)
+        snap_cols = snap_cols[-width:]
+        viz_str = _render_spectrogram(snap_cols, SPEC_BANDS)
+
     if _paused.is_set():
         text = "[dim]Paused — press Enter to resume[/dim]"
     elif transcription[0]:
@@ -99,7 +116,7 @@ def _make_renderable(
     else:
         text = "[dim]Listening...[/dim]"
     return Group(
-        spec_text,
+        Text.from_markup(viz_str),
         Panel(
             Text.from_markup(text),
             title="transcription",
@@ -116,34 +133,50 @@ print("Model loaded.\n")
 
 input("Press Enter to start recording... ")
 
-# One spectral column per audio chunk; keep enough to fill the terminal width.
+_MAX_SAMPLES = int(3.0 * settings.sample_rate)
+samples: deque[float] = deque(maxlen=_MAX_SAMPLES)
+samples_lock = threading.Lock()
+
 _MAX_COLUMNS = 300
-columns: deque[np.ndarray] = deque(maxlen=_MAX_COLUMNS)
-columns_lock = threading.Lock()
+spec_columns: deque[np.ndarray] = deque(maxlen=_MAX_COLUMNS)
+spec_columns_lock = threading.Lock()
+
 transcription: list[str] = [""]
 _stop_event = threading.Event()
 _paused = threading.Event()
 
-# Build FFT artefacts once — chunk_samples = chunk_duration * sample_rate = 0.1 * 16000
 _chunk_samples = int(settings.chunk_duration * settings.sample_rate)
-_spec_state = _build_spec_state(settings.sample_rate, _chunk_samples)
+_spec_state: SpectrogramState = build_spec_state(settings.sample_rate, _chunk_samples)
 
 
 def _on_chunk(chunk: np.ndarray) -> None:
-    """Compute the spectrum column for this chunk and append it to the ring buffer."""
+    """Feed the latest mic chunk into the active visualisation buffer."""
     if _paused.is_set():
         return
-    col = _compute_column(chunk, _spec_state)  # FFT outside the lock
-    with columns_lock:
-        columns.append(col)
+    if _VIZ_MODE == "waveform":
+        with samples_lock:
+            samples.extend(chunk.tolist())
+    else:
+        col = compute_column(chunk, _spec_state)
+        with spec_columns_lock:
+            spec_columns.append(col)
 
 
 def _refresh_loop(live: Live) -> None:
-    """Push spectrogram redraws at a fixed rate, independent of transcription."""
+    """Push visualisation redraws at a fixed rate, independent of transcription."""
     interval = 1.0 / _REFRESH_HZ
     while not _stop_event.is_set():
         width = max(10, live.console.width)
-        live.update(_make_renderable(columns, columns_lock, transcription, width=width))
+        live.update(
+            _make_renderable(
+                width,
+                transcription,
+                samples,
+                samples_lock,
+                spec_columns,
+                spec_columns_lock,
+            )
+        )
         _stop_event.wait(interval)
 
 
@@ -158,8 +191,10 @@ def _stdin_loop() -> None:
             _paused.clear()
         else:
             _paused.set()
-            with columns_lock:
-                columns.clear()
+            with samples_lock:
+                samples.clear()
+            with spec_columns_lock:
+                spec_columns.clear()
 
 
 print("Press Enter to pause/resume, Ctrl+C to stop\n")

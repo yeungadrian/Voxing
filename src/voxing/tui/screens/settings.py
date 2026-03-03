@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, get_args
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -11,7 +11,7 @@ from textual.widgets import Input, Static
 from voxing.config import Settings
 from voxing.tui.widgets import FooterBar
 
-type SettingKind = Literal["bool", "int", "float", "str"]
+type SettingKind = Literal["bool", "int", "float", "str", "choice"]
 
 
 @dataclass
@@ -20,6 +20,7 @@ class SettingEntry:
     label: str
     kind: SettingKind
     value: bool | int | float | str
+    choices: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -37,8 +38,14 @@ def _build_entries(settings: Settings) -> list[SettingEntry]:
         if name in _EXCLUDED_SETTINGS:
             continue
         raw = getattr(settings, name)
-        if isinstance(raw, bool):
-            kind: SettingKind = "bool"
+        annotation = settings.model_fields[name].annotation
+        args = get_args(annotation) if annotation is not None else ()
+        choices: list[str] = []
+        if args and all(isinstance(a, str) for a in args):
+            kind: SettingKind = "choice"
+            choices = list(args)
+        elif isinstance(raw, bool):
+            kind = "bool"
         elif isinstance(raw, int):
             kind = "int"
         elif isinstance(raw, float):
@@ -46,7 +53,9 @@ def _build_entries(settings: Settings) -> list[SettingEntry]:
         else:
             kind = "str"
         label = name.replace("_", " ").title()
-        entries.append(SettingEntry(key=name, label=label, kind=kind, value=raw))
+        entries.append(
+            SettingEntry(key=name, label=label, kind=kind, value=raw, choices=choices)
+        )
     return entries
 
 
@@ -93,7 +102,7 @@ class SettingRow(Static):
                     parsed = int(raw)
                 case "float":
                     parsed = float(raw)
-                case "str":
+                case "str" | "choice":
                     parsed = raw
         except ValueError:
             return False
@@ -111,6 +120,19 @@ class SettingRow(Static):
         if self.entry.kind != "bool":
             return
         self.entry.value = not self.entry.value
+        self.query_one(".setting-value", Static).update(self._format_value())
+
+    def cycle_choice(self, direction: int) -> None:
+        """Cycle through choices by +1 or -1, wrapping around."""
+        if self.entry.kind != "choice" or not self.entry.choices:
+            return
+        current = str(self.entry.value)
+        try:
+            idx = self.entry.choices.index(current)
+        except ValueError:
+            idx = 0
+        idx = (idx + direction) % len(self.entry.choices)
+        self.entry.value = self.entry.choices[idx]
         self.query_one(".setting-value", Static).update(self._format_value())
 
 
@@ -199,7 +221,7 @@ class SettingsScreen(Screen[SettingsResult | None]):
 
     def on_mount(self) -> None:
         self.query_one(FooterBar).set_status(
-            "[dim]esc to save & return  ·  tab to search  ·  ←→ toggle bools[/]"
+            "[dim]esc to save & return  ·  tab to search  ·  ←→ toggle bools/choices[/]"
         )
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -237,8 +259,8 @@ class SettingsScreen(Screen[SettingsResult | None]):
         self._editing = False
 
     def _auto_edit_row(self, row: SettingRow | None) -> None:
-        """Auto-enter edit mode if the row is non-bool."""
-        if row is not None and row.entry.kind != "bool":
+        """Auto-enter edit mode if the row is non-bool and non-choice."""
+        if row is not None and row.entry.kind not in ("bool", "choice"):
             row.begin_edit()
             self._editing = True
 
@@ -271,8 +293,11 @@ class SettingsScreen(Screen[SettingsResult | None]):
                 event.prevent_default()
             elif event.key in ("left", "right"):
                 row = settings_list.highlighted_row
-                if row is not None and row.entry.kind == "bool":
-                    row.toggle_bool()
+                if row is not None:
+                    if row.entry.kind == "bool":
+                        row.toggle_bool()
+                    elif row.entry.kind == "choice":
+                        row.cycle_choice(1 if event.key == "right" else -1)
                 event.prevent_default()
             elif event.is_printable and event.character:
                 search.focus()

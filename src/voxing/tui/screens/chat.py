@@ -138,7 +138,11 @@ class ChatScreen(Screen[None]):
         self._transcribe_cancel.clear()
         self.chat_input.disabled = True
         self.footer_bar.set_status(f"[{WARNING}]Loading STT model...[/]")
-        self._transcription_display = TranscriptionDisplay()
+        self._transcription_display = TranscriptionDisplay(
+            audio_visual=self._settings.audio_visual,
+            sample_rate=self._settings.sample_rate,
+            chunk_duration=self._settings.chunk_duration,
+        )
         self.message_list.mount(self._transcription_display)
         self.message_list.scroll_end(animate=False)
         self._transcribe()

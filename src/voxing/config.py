@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +14,7 @@ class Settings(BaseSettings):
     silence_threshold: float = 0.01
     max_buffer_secs: float = 45.0
     draft_interval_secs: float = 0.5
+    audio_visual: Literal["none", "waveform", "spectrogram"] = "waveform"
 
     llm_model_id: str = "LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit"
     llm_system_prompt: str = "You are a helpful voice assistant."

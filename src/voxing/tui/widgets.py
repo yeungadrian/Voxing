@@ -1,3 +1,5 @@
+from collections import deque
+
 import mlx.core as mx
 import numpy as np
 from rich.segment import Segment
@@ -11,11 +13,15 @@ from textual.widget import Widget
 from textual.widgets import Markdown, Static, TextArea
 
 from voxing.tui.theme import PRIMARY
-from voxing.waveform import (
+from voxing.viz import (
+    BLOCKS,
     BRAILLE_BASE,
+    SPEC_BANDS,
     SUB_ROW_BITS,
     VIZ_WINDOW,
     bar_columns,
+    build_spec_state,
+    compute_column,
     peaks,
 )
 
@@ -80,6 +86,70 @@ class AudioVisualizer(Widget):
                 segments.append(Segment(chr(BRAILLE_BASE + bits), self._style))
             else:
                 segments.append(Segment(" "))
+
+        return Strip(segments)
+
+
+class SpectrogramVisualizer(Widget):
+    """Renders live audio as a rolling spectrogram."""
+
+    DEFAULT_CSS = """
+    SpectrogramVisualizer {
+        height: 6;
+        width: 1fr;
+    }
+    """
+
+    def __init__(
+        self,
+        sample_rate: int,
+        chunk_duration: float,
+        chunks_per_column: int = 2,
+    ) -> None:
+        super().__init__()
+        chunk_samples = int(sample_rate * chunk_duration * chunks_per_column)
+        self._state = build_spec_state(sample_rate, chunk_samples)
+        self._columns: deque[np.ndarray] = deque(maxlen=200)
+        self._pending: list[np.ndarray] = []
+        self._chunks_per_column = chunks_per_column
+        self._styles = tuple(
+            Style.parse(f"#{55 + level * 25:02x}b4fa") for level in range(9)
+        )
+
+    def on_mount(self) -> None:
+        """Start periodic refresh to animate the spectrogram."""
+        self.set_interval(0.1, self._tick)
+
+    def _tick(self) -> None:
+        """Refresh the widget."""
+        self.refresh()
+
+    def push_chunk(self, chunk: np.ndarray) -> None:
+        """Accumulate chunks and emit a spectrogram column when enough are gathered."""
+        self._pending.append(chunk)
+        if len(self._pending) >= self._chunks_per_column:
+            combined = np.concatenate(self._pending)
+            self._pending.clear()
+            self._columns.append(compute_column(combined, self._state))
+
+    def render_line(self, y: int) -> Strip:
+        """Render one row of the spectrogram."""
+        width = self.size.width or 1
+        band_idx = SPEC_BANDS - 1 - y
+        if band_idx < 0 or band_idx >= SPEC_BANDS:
+            return Strip([Segment(" " * width)])
+
+        cols = self._columns
+        n = len(cols)
+        segments: list[Segment] = []
+        start = max(0, n - width)
+        for i in range(start, n):
+            val = float(cols[i][band_idx])
+            level = min(int(val * 8), 8)
+            segments.append(Segment(BLOCKS[level], self._styles[level]))
+        pad = width - (n - start)
+        if pad > 0:
+            segments.append(Segment(" " * pad))
 
         return Strip(segments)
 
@@ -171,9 +241,25 @@ class TranscriptionDisplay(Widget):
     }
     """
 
+    def __init__(
+        self,
+        audio_visual: str = "waveform",
+        sample_rate: int = 16_000,
+        chunk_duration: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self._visualizer: AudioVisualizer | SpectrogramVisualizer | None
+        if audio_visual == "spectrogram":
+            self._visualizer = SpectrogramVisualizer(sample_rate, chunk_duration)
+        elif audio_visual == "waveform":
+            self._visualizer = AudioVisualizer()
+        else:
+            self._visualizer = None
+
     def compose(self) -> ComposeResult:
-        """Compose the waveform, mic indicator and live text."""
-        yield AudioVisualizer()
+        """Compose the visualizer, mic indicator and live text."""
+        if self._visualizer is not None:
+            yield self._visualizer
         yield Static("⏺ Recording", id="recording-label")
         yield Static("Listening...", id="transcription-text")
 
@@ -186,7 +272,8 @@ class TranscriptionDisplay(Widget):
 
     def push_chunk(self, chunk: np.ndarray) -> None:
         """Forward an audio chunk to the visualizer."""
-        self.query_one(AudioVisualizer).push_chunk(chunk)
+        if self._visualizer is not None:
+            self._visualizer.push_chunk(chunk)
 
 
 class UserMessage(Widget):
