@@ -71,7 +71,11 @@ class RadialWidget(Widget):
             return Strip([Segment(" " * (self.size.width or 1))])
 
         row = grid[y]
-        color_row = self._colors[y] if self._colors is not None and y < len(self._colors) else None
+        color_row = (
+            self._colors[y]
+            if self._colors is not None and y < len(self._colors)
+            else None
+        )
         segments: list[Segment] = []
 
         for ci, bits in enumerate(row):
@@ -118,15 +122,11 @@ class RadialScreen(Screen[None]):
         sr = self._settings.sample_rate
         chunk_samples = int(self._settings.chunk_duration * sr)
         try:
-            with sd.InputStream(
-                samplerate=sr, channels=1, dtype=np.float32
-            ) as stream:
+            with sd.InputStream(samplerate=sr, channels=1, dtype=np.float32) as stream:
                 while not self._stop_event.is_set():
                     chunk, _ = stream.read(chunk_samples)
                     mono = chunk[:, 0]
-                    self.app.call_from_thread(
-                        self.radial_widget.push_chunk, mono
-                    )
+                    self.app.call_from_thread(self.radial_widget.push_chunk, mono)
         except Exception:
             pass
 
