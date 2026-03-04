@@ -18,6 +18,7 @@ from voxing.tui.messages import (
     TranscriptionFinal,
     TranscriptionUpdate,
 )
+from voxing.tui.screens.radial import RadialScreen
 from voxing.tui.screens.settings import SettingsResult, SettingsScreen
 from voxing.tui.theme import ERROR, PRIMARY, SUCCESS, WARNING
 from voxing.tui.widgets import (
@@ -100,6 +101,8 @@ class ChatScreen(Screen[None]):
             self._handle_settings()
         elif text == "/transcribe":
             self._handle_transcribe()
+        elif text == "/radial":
+            self._handle_radial()
         elif text == "/help":
             self._handle_help()
         elif text.startswith("/"):
@@ -146,6 +149,10 @@ class ChatScreen(Screen[None]):
         self.message_list.mount(self._transcription_display)
         self.message_list.scroll_end(animate=False)
         self._transcribe()
+
+    def _handle_radial(self) -> None:
+        """Open the full-screen radial spectrum visualiser."""
+        self.app.push_screen(RadialScreen())
 
     def _handle_help(self) -> None:
         self.footer_bar.set_status(

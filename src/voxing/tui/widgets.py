@@ -85,6 +85,7 @@ class VizWidget(Widget):
 
 SLASH_COMMANDS: dict[str, str] = {
     "/transcribe": "Start voice transcription",
+    "/radial": "Radial spectrum visualizer",
     "/settings": "Open settings panel",
     "/clear": "Clear chat history",
     "/help": "Show available commands",
