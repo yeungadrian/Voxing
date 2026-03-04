@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from voxing.viz._protocol import BrailleGrid, ColorGrid
+    from voxing.viz._protocol import ColorGrid
 
 # Braille bit layout: each character is 2 columns × 4 rows of dots
 # Left column bits:  row 0=0x01, 1=0x02, 2=0x04, 3=0x40
@@ -28,6 +28,54 @@ def set_braille_pixel(
         sub_col = x & 1  # x % 2
         sub_row = y & 3  # y % 4
         grid[char_row, char_col] |= BRAILLE_BITS[sub_row][sub_col]
+
+
+def draw_circle(
+    cx: int,
+    cy: int,
+    radius: int,
+    grid: np.ndarray,
+    width: int,
+    height: int,
+    dot_w: int,
+    dot_h: int,
+    color_grid: "ColorGrid | None" = None,
+    color: str | None = None,
+) -> None:
+    """Draw a circle using the midpoint circle algorithm.
+
+    Uses 8-way symmetry for a smooth, gap-free ring at any radius.
+    """
+    x, y = 0, radius
+    d = 1 - radius
+
+    def _plot8(px: int, py: int) -> None:
+        for dx, dy in (
+            (px, py),
+            (-px, py),
+            (px, -py),
+            (-px, -py),
+            (py, px),
+            (-py, px),
+            (py, -px),
+            (-py, -px),
+        ):
+            bx, by = cx + dx, cy + dy
+            if 0 <= bx < dot_w and 0 <= by < dot_h:
+                set_braille_pixel(grid, bx, by, width, height)
+                if color_grid is not None and color is not None:
+                    cr, cc = by >> 2, bx >> 1
+                    if 0 <= cr < height and 0 <= cc < width:
+                        color_grid[cr][cc] = color
+
+    while x <= y:
+        _plot8(x, y)
+        if d < 0:
+            d += 2 * x + 3
+        else:
+            d += 2 * (x - y) + 5
+            y -= 1
+        x += 1
 
 
 def bresenham_line(
