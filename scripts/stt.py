@@ -34,11 +34,17 @@ _VIZ_HEIGHT = 3
 def _render_frame(frame: VizFrame) -> str:
     """Convert any VizFrame to a Rich-markup string."""
     lines: list[str] = []
-    for row in frame.grid:
+    for row_idx, row in enumerate(frame.grid):
+        color_row = (
+            frame.colors[row_idx]
+            if frame.colors is not None and row_idx < len(frame.colors)
+            else None
+        )
         chars: list[str] = []
-        for bits in row:
+        for col_idx, bits in enumerate(row):
             if bits:
-                chars.append(f"[{PRIMARY}]{chr(BRAILLE_BASE + bits)}[/]")
+                color = color_row[col_idx] if color_row is not None else PRIMARY
+                chars.append(f"[{color}]{chr(BRAILLE_BASE + bits)}[/]")
             else:
                 chars.append(" ")
         lines.append("".join(chars))

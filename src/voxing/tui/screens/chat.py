@@ -152,7 +152,7 @@ class ChatScreen(Screen[None]):
 
     def _handle_radial(self) -> None:
         """Open the full-screen radial spectrum visualiser."""
-        self.app.push_screen(RadialScreen())
+        self.app.push_screen(RadialScreen(self._settings))
 
     def _handle_help(self) -> None:
         self.footer_bar.set_status(

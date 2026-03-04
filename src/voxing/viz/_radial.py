@@ -16,19 +16,22 @@ from voxing.palette import (
     SURFACE1,
     TEAL,
 )
+from voxing.viz._braille import bresenham_line
 from voxing.viz._protocol import (
+    MIN_ROLLING_MAX,
     NOISE_GATE,
     ROLLING_MAX_DECAY,
+    ColorGrid,
     VizFrame,
 )
 
 N_FFT = 512
 MAX_RAYS = 360  # Maximum rays for large terminals
-ATTACK_ALPHA = 0.5  # Faster attack response for spikier visualization
-DECAY_ALPHA = 0.5  # Faster decay response for spikier visualization
+ATTACK_ALPHA = 0.7  # Fast attack: quickly follows rising amplitudes
+DECAY_ALPHA = 0.3  # Slow decay: trails fading amplitudes for smoother visuals
 
 # Hollow ring parameters
-MIN_RAY_AMPLITUDE = 0.12  # Rays always extend at least 12% from center
+MIN_RAY_AMPLITUDE = 0.05  # Rays always extend at least 12% from center
 ADAPTIVE_RAY_DENSITY = True  # Enable terminal-size-based ray count
 
 # Adaptive ray density thresholds
@@ -55,16 +58,6 @@ _RADIAL_PALETTE: tuple[str, ...] = (
     SAPPHIRE,  # High-mids
     SKY,  # High - cyan
     TEAL,  # Treble - cyan-green
-)
-
-# Braille bit layout for pixel drawing
-# Duplicated from _oscilloscope.py to maintain module independence
-# Each braille character has 2 columns × 4 rows of dots with specific bit mappings
-_BRAILLE_BITS = (
-    (0x01, 0x08),
-    (0x02, 0x10),
-    (0x04, 0x20),
-    (0x40, 0x80),
 )
 
 
@@ -138,53 +131,6 @@ def _calculate_ray_count(width: int, height: int) -> int:
     return min(ray_count, MAX_RAYS)
 
 
-def _set_pixel(grid: np.ndarray, x: int, y: int, width: int, height: int) -> None:
-    """Set a single braille pixel in the grid."""
-    char_col = x >> 1
-    char_row = y >> 2
-    if 0 <= char_col < width and 0 <= char_row < height:
-        sub_col = x & 1
-        sub_row = y & 3
-        grid[char_row, char_col] |= _BRAILLE_BITS[sub_row][sub_col]
-
-
-def _bresenham_line(
-    x0: int,
-    y0: int,
-    x1: int,
-    y1: int,
-    grid: np.ndarray,
-    color_grid: list[list[str]],
-    width: int,
-    height: int,
-    dot_w: int,
-    dot_h: int,
-    color: str,
-) -> None:
-    """Draw a line using Bresenham's algorithm, painting braille pixels and colors."""
-    dx = abs(x1 - x0)
-    dy = -abs(y1 - y0)
-    sx = 1 if x0 < x1 else -1
-    sy = 1 if y0 < y1 else -1
-    err = dx + dy
-    while True:
-        if 0 <= x0 < dot_w and 0 <= y0 < dot_h:
-            _set_pixel(grid, x0, y0, width, height)
-            cr = y0 >> 2
-            cc = x0 >> 1
-            if 0 <= cr < height and 0 <= cc < width:
-                color_grid[cr][cc] = color
-        if x0 == x1 and y0 == y1:
-            break
-        e2 = 2 * err
-        if e2 >= dy:
-            err += dy
-            x0 += sx
-        if e2 <= dx:
-            err += dx
-            y0 += sy
-
-
 @dataclass
 class RadialState:
     """Mutable state for the radial spectrum visualiser."""
@@ -196,7 +142,7 @@ class RadialState:
     per_ray_max: np.ndarray = field(
         default_factory=lambda: np.zeros(0, dtype=np.float32)
     )
-    rolling_max: float = 0.05
+    rolling_max: float = MIN_ROLLING_MAX
 
     # Rotation
     rotation_angle: float = 0.0
@@ -301,7 +247,7 @@ def _render_radial(state: RadialState, width: int, height: int) -> VizFrame:
 
     # Initialize grids
     grid = np.zeros((height, width), dtype=np.int32)
-    color_grid: list[list[str]] = [[SURFACE1] * width for _ in range(height)]
+    color_grid: ColorGrid = [[SURFACE1] * width for _ in range(height)]
 
     # Draw rays from CENTER point to outer edge (no inner circle)
     for i in range(n_rays):
@@ -330,8 +276,8 @@ def _render_radial(state: RadialState, width: int, height: int) -> VizFrame:
         y1 = round(cy - end_dy)
 
         # Draw ray from center to outer edge
-        _bresenham_line(
-            x0, y0, x1, y1, grid, color_grid, width, height, dot_w, dot_h, color
+        bresenham_line(
+            x0, y0, x1, y1, grid, width, height, dot_w, dot_h, color_grid, color
         )
 
     return VizFrame(grid=grid.tolist(), colors=color_grid)

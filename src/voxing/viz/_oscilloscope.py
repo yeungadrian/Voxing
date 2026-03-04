@@ -15,9 +15,12 @@ from voxing.palette import (
     SURFACE2,
     TEAL,
 )
+from voxing.viz._braille import bresenham_line
 from voxing.viz._protocol import (
+    MIN_ROLLING_MAX,
     NOISE_GATE,
     ROLLING_MAX_DECAY,
+    ColorGrid,
     VizFrame,
 )
 
@@ -43,7 +46,7 @@ class OscilloscopeState:
     ring: np.ndarray
     write_pos: int = 0
     filled: int = 0
-    rolling_max: float = 0.05
+    rolling_max: float = MIN_ROLLING_MAX
     trace_history: deque[np.ndarray] = field(default_factory=lambda: deque(maxlen=3))
 
 
@@ -95,33 +98,13 @@ def _find_trigger_offset(samples: np.ndarray) -> int:
     return int(crossings[0])
 
 
-# Braille bit layout: each character is 2 columns x 4 rows of dots.
-# Left column bits:  row 0=0x01, 1=0x02, 2=0x04, 3=0x40
-# Right column bits: row 0=0x08, 1=0x10, 2=0x20, 3=0x80
-_BRAILLE_BITS = (
-    (0x01, 0x08),  # sub-row 0
-    (0x02, 0x10),  # sub-row 1
-    (0x04, 0x20),  # sub-row 2
-    (0x40, 0x80),  # sub-row 3
-)
-
-
-def _set_pixel(grid: np.ndarray, x: int, y: int, width: int, height: int) -> None:
-    """Set a single braille pixel in the grid."""
-    char_col = x >> 1  # x // 2
-    char_row = y >> 2  # y // 4
-    if 0 <= char_col < width and 0 <= char_row < height:
-        sub_col = x & 1  # x % 2
-        sub_row = y & 3  # y % 4
-        grid[char_row, char_col] |= _BRAILLE_BITS[sub_row][sub_col]
-
-
 def _bresenham_rasterize(
     pixel_xs: np.ndarray,
     pixel_ys: np.ndarray,
     width: int,
     height: int,
     grid: np.ndarray,
+    collect_cells: set[tuple[int, int]] | None = None,
 ) -> None:
     """Draw connected lines between consecutive points using Bresenham's algorithm."""
     dot_w = width * 2
@@ -130,23 +113,39 @@ def _bresenham_rasterize(
     for i in range(n - 1):
         x0, y0 = int(pixel_xs[i]), int(pixel_ys[i])
         x1, y1 = int(pixel_xs[i + 1]), int(pixel_ys[i + 1])
-        dx = abs(x1 - x0)
-        dy = -abs(y1 - y0)
-        sx = 1 if x0 < x1 else -1
-        sy = 1 if y0 < y1 else -1
-        err = dx + dy
-        while True:
-            if 0 <= x0 < dot_w and 0 <= y0 < dot_h:
-                _set_pixel(grid, x0, y0, width, height)
-            if x0 == x1 and y0 == y1:
-                break
-            e2 = 2 * err
-            if e2 >= dy:
-                err += dy
-                x0 += sx
-            if e2 <= dx:
-                err += dx
-                y0 += sy
+        bresenham_line(x0, y0, x1, y1, grid, width, height, dot_w, dot_h)
+        if collect_cells is not None:
+            _collect_bresenham_cells(x0, y0, x1, y1, width, height, collect_cells)
+
+
+def _collect_bresenham_cells(
+    x0: int,
+    y0: int,
+    x1: int,
+    y1: int,
+    width: int,
+    height: int,
+    cells: set[tuple[int, int]],
+) -> None:
+    """Record all char cells touched by a Bresenham line segment."""
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    err = dx - dy
+    while True:
+        cc, cr = x0 >> 1, y0 >> 2
+        if 0 <= cc < width and 0 <= cr < height:
+            cells.add((cr, cc))
+        if x0 == x1 and y0 == y1:
+            break
+        e2 = err * 2
+        if e2 > -dy:
+            err -= dy
+            x0 += sx
+        if e2 < dx:
+            err += dx
+            y0 += sy
 
 
 def _render_oscillo_rows(state: OscilloscopeState, width: int, height: int) -> VizFrame:
@@ -214,8 +213,11 @@ def _render_oscillo_rows(state: OscilloscopeState, width: int, height: int) -> V
 
     state.trace_history.append(pixel_ys.copy())
 
-    # Paint current trace with Bresenham lines
-    _bresenham_rasterize(pixel_xs, pixel_ys, width, height, grid_arr)
+    # Paint current trace with Bresenham lines, collecting all touched cells
+    current_cells: set[tuple[int, int]] = set()
+    _bresenham_rasterize(
+        pixel_xs, pixel_ys, width, height, grid_arr, collect_cells=current_cells
+    )
 
     # Amplitude-based color: distance from center → palette index
     mid_y = (dot_h - 1) / 2.0
@@ -233,7 +235,7 @@ def _render_oscillo_rows(state: OscilloscopeState, width: int, height: int) -> V
     color_indices = np.minimum(
         (cell_amp * (n_colors - 1)).astype(np.int32), n_colors - 1
     )
-    colors: list[list[str]] = []
+    colors: ColorGrid = []
     for _ in range(height):
         row_colors = [
             _AMPLITUDE_PALETTE[int(color_indices[col])] for col in range(width)
@@ -241,13 +243,6 @@ def _render_oscillo_rows(state: OscilloscopeState, width: int, height: int) -> V
         colors.append(row_colors)
 
     # Apply phosphor colors only to cells not touched by current trace
-    current_cells: set[tuple[int, int]] = set()
-    for i in range(display_count):
-        cc = int(pixel_xs[i]) >> 1
-        cr = int(pixel_ys[i]) >> 2
-        if 0 <= cc < width and 0 <= cr < height:
-            current_cells.add((cr, cc))
-
     for (r, c), color in phosphor_cells.items():
         if (r, c) not in current_cells:
             colors[r][c] = color

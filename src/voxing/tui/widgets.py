@@ -25,21 +25,22 @@ class VizWidget(Widget):
 
     DEFAULT_CSS = """
     VizWidget {
-        height: 3;
-        width: 33%;
+        height: 1fr;
+        width: 1fr;
     }
     """
 
-    def __init__(self, viz: Visualizer) -> None:
+    def __init__(self, viz: Visualizer, refresh_rate: float = 10.0) -> None:
         super().__init__()
         self._viz = viz
+        self._refresh_rate = refresh_rate
         self._frame: VizFrame | None = None
         self._style = Style.parse(PRIMARY)
         self._color_cache: dict[str, Style] = {}
 
     def on_mount(self) -> None:
         """Start periodic refresh to animate the visualizer."""
-        self.set_interval(0.1, self._tick)
+        self.set_interval(1.0 / self._refresh_rate, self._tick)
 
     def _tick(self) -> None:
         """Recompute the frame then refresh."""
@@ -159,6 +160,10 @@ class TranscriptionDisplay(Widget):
         height: auto;
         padding: 0 1;
         margin: 0 0;
+    }
+    TranscriptionDisplay > VizWidget {
+        height: 3;
+        width: 33%;
     }
     TranscriptionDisplay > #recording-label {
         color: $error;

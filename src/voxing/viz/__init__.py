@@ -13,3 +13,5 @@ __all__ = [
     "OscilloscopeViz",
     "RadialViz",
 ]
+
+# Note: BrailleGrid, ColorGrid type aliases are internal to viz package

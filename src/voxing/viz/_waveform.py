@@ -12,7 +12,14 @@ from voxing.palette import (
     SURFACE1,
     SURFACE2,
 )
-from voxing.viz._protocol import NOISE_GATE, ROLLING_MAX_DECAY, VizFrame
+from voxing.viz._protocol import (
+    MIN_ROLLING_MAX,
+    NOISE_GATE,
+    ROLLING_MAX_DECAY,
+    BrailleGrid,
+    ColorGrid,
+    VizFrame,
+)
 
 _SUB_ROW_BITS = (0x09, 0x12, 0x24, 0xC0)  # both-column bits for sub-rows 0-3
 
@@ -70,7 +77,7 @@ class WaveformViz:
 
     def __init__(self) -> None:
         self._buf = np.empty(0, dtype=np.float32)
-        self._rolling_max: float = MIN_AMP
+        self._rolling_max: float = MIN_ROLLING_MAX
         self._cached_width: int = 0
         self._cached_columns: list[int | None] = []
         self._cached_num_bars: int = 0
@@ -98,8 +105,8 @@ class WaveformViz:
 
         total_dots = height * 4
         n_colors = len(_WAVEFORM_GRADIENT)
-        grid: list[list[int]] = []
-        colors: list[list[str]] = []
+        grid: BrailleGrid = []
+        colors: ColorGrid = []
 
         for y in range(height):
             row_bits: list[int] = []
