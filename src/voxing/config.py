@@ -6,9 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="VOXING_")
 
-    audio_visual: Literal[
-        "none", "waveform", "spectrogram", "oscilloscope", "spectrum"
-    ] = "waveform"
+    audio_visual: Literal["none", "waveform", "oscilloscope"] = "waveform"
 
     model_id: str = "mlx-community/parakeet-tdt-0.6b-v3"
     sample_rate: int = 16_000
@@ -17,8 +15,7 @@ class Settings(BaseSettings):
     silence_duration: float = 3.0
     silence_threshold: float = 0.01
     max_buffer_secs: float = 45.0
-    draft_interval_secs: float = 0.5
-
+    draft_interval_secs: float = 1.0
 
     llm_model_id: str = "LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit"
     llm_system_prompt: str = "You are a helpful voice assistant."

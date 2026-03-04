@@ -1,15 +1,29 @@
 from textual.theme import Theme
 
-PRIMARY = "#89b4fa"
-SECONDARY = "#cba6f7"
-ACCENT = "#94e2d5"
-BACKGROUND = "#1e1e2e"
-SURFACE = "#313244"
-PANEL = "#45475a"
-FOREGROUND = "#cdd6f4"
-SUCCESS = "#a6e3a1"
-WARNING = "#f9e2af"
-ERROR = "#f38ba8"
+from voxing.palette import (
+    BASE,
+    BLUE,
+    GREEN,
+    MAUVE,
+    RED,
+    SURFACE0,
+    SURFACE1,
+    TEAL,
+    TEXT,
+    YELLOW,
+)
+
+# Semantic aliases used throughout the app — re-exported for backward compatibility
+PRIMARY = BLUE
+SECONDARY = MAUVE
+ACCENT = TEAL
+BACKGROUND = BASE
+SURFACE = SURFACE0
+PANEL = SURFACE1
+FOREGROUND = TEXT
+SUCCESS = GREEN
+WARNING = YELLOW
+ERROR = RED
 
 CATPPUCCIN_MOCHA = Theme(
     name="catppuccin-mocha",

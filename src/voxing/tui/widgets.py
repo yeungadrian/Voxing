@@ -12,11 +12,8 @@ from textual.widgets import Markdown, Static, TextArea
 
 from voxing.tui.theme import PRIMARY
 from voxing.viz import (
-    BLOCKS,
     BRAILLE_BASE,
     OscilloscopeViz,
-    SpectrogramViz,
-    SpectrumViz,
     Visualizer,
     VizFrame,
     WaveformViz,
@@ -72,22 +69,16 @@ class VizWidget(Widget):
         color_row = colors[y] if colors is not None and y < len(colors) else None
         segments: list[Segment] = []
 
-        if frame.mode == "braille":
-            for bits in row:
-                if bits:
-                    segments.append(Segment(chr(BRAILLE_BASE + bits), self._style))
-                else:
-                    segments.append(Segment(" "))
-        else:
-            for ci, level in enumerate(row):
-                if level == 0:
-                    segments.append(Segment(" "))
-                elif color_row is not None:
-                    segments.append(
-                        Segment(BLOCKS[level], self._color_style(color_row[ci]))
-                    )
-                else:
-                    segments.append(Segment(BLOCKS[level], self._style))
+        for ci, bits in enumerate(row):
+            if bits:
+                style = (
+                    self._color_style(color_row[ci])
+                    if color_row is not None
+                    else self._style
+                )
+                segments.append(Segment(chr(BRAILLE_BASE + bits), style))
+            else:
+                segments.append(Segment(" "))
 
         return Strip(segments)
 
@@ -187,16 +178,11 @@ class TranscriptionDisplay(Widget):
     ) -> None:
         super().__init__()
         viz: Visualizer | None = None
-        chunk_samples = int(sample_rate * chunk_duration)
         match audio_visual:
             case "waveform":
                 viz = WaveformViz()
-            case "spectrogram":
-                viz = SpectrogramViz(sample_rate, chunk_samples)
             case "oscilloscope":
                 viz = OscilloscopeViz()
-            case "spectrum":
-                viz = SpectrumViz(sample_rate, chunk_samples)
         self._visualizer = VizWidget(viz) if viz else None
 
     def compose(self) -> ComposeResult:

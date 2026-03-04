@@ -1,7 +1,7 @@
 """Unified visualisation protocol."""
 
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Protocol
 
 import numpy as np
 
@@ -10,10 +10,7 @@ import numpy as np
 class VizFrame:
     """One rendered frame of any visualisation."""
 
-    grid: list[list[int]]  # height x width
-    mode: Literal["braille", "blocks"]
-    # braille: values are braille offsets (add 0x2800)
-    # blocks: values are 0-8 indices into BLOCKS
+    grid: list[list[int]]  # height x width, values are braille offsets (add 0x2800)
     colors: list[list[str]] | None = None  # per-cell hex, or None for default
 
 
@@ -22,14 +19,9 @@ class Visualizer(Protocol):
     def render(self, width: int, height: int) -> VizFrame: ...
 
 
-VIZ_PALETTE: list[str] = [
-    "#1e1e2e",  # 0 silence / background
-    "#313244",  # 1 near-silence
-    "#45475a",  # 2 very low
-    "#585b70",  # 3 low
-    "#6a7db5",  # 4 dim blue
-    "#89b4fa",  # 5 primary blue
-    "#74c7ec",  # 6 sapphire
-    "#89dceb",  # 7 sky
-    "#89dceb",  # 8 peak / sky (capped, avoids near-white)
-]
+# ── shared braille constants ──
+BRAILLE_BASE = 0x2800
+
+# ── shared audio constants ──
+NOISE_GATE = 0.005
+ROLLING_MAX_DECAY = 0.95

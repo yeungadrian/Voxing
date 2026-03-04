@@ -19,45 +19,28 @@ from voxing.parakeet import load_model
 from voxing.stt import RealtimeTranscriber
 from voxing.tui.theme import FOREGROUND, PRIMARY
 from voxing.viz import (
-    BLOCKS,
     BRAILLE_BASE,
     OscilloscopeViz,
-    SpectrogramViz,
-    SpectrumViz,
     Visualizer,
     VizFrame,
     WaveformViz,
 )
 
-_VIZ_MODE: Literal["waveform", "spectrogram", "oscilloscope", "spectrum"] = (
-    "spectrogram"
-)
+_VIZ_MODE: Literal["waveform", "oscilloscope"] = "oscilloscope"
 _REFRESH_HZ = 30
-_VIZ_HEIGHT = 6
+_VIZ_HEIGHT = 3
 
 
 def _render_frame(frame: VizFrame) -> str:
     """Convert any VizFrame to a Rich-markup string."""
     lines: list[str] = []
-    for y, row in enumerate(frame.grid):
-        colors = frame.colors
-        color_row = colors[y] if colors is not None and y < len(colors) else None
+    for row in frame.grid:
         chars: list[str] = []
-        if frame.mode == "braille":
-            for bits in row:
-                if bits:
-                    chars.append(f"[{PRIMARY}]{chr(BRAILLE_BASE + bits)}[/]")
-                else:
-                    chars.append(" ")
-        else:
-            for ci, level in enumerate(row):
-                if level == 0:
-                    chars.append(" ")
-                elif color_row is not None:
-                    chars.append(f"[{color_row[ci]}]{BLOCKS[level]}[/]")
-                else:
-                    brightness = int(55 + level * 25)
-                    chars.append(f"[#{brightness:02x}b4fa]{BLOCKS[level]}[/]")
+        for bits in row:
+            if bits:
+                chars.append(f"[{PRIMARY}]{chr(BRAILLE_BASE + bits)}[/]")
+            else:
+                chars.append(" ")
         lines.append("".join(chars))
     return "\n".join(lines)
 
@@ -76,12 +59,8 @@ _viz: Visualizer
 match _VIZ_MODE:
     case "waveform":
         _viz = WaveformViz()
-    case "spectrogram":
-        _viz = SpectrogramViz(settings.sample_rate, _chunk_samples)
     case "oscilloscope":
         _viz = OscilloscopeViz()
-    case "spectrum":
-        _viz = SpectrumViz(settings.sample_rate, _chunk_samples)
 
 transcription: list[str] = [""]
 _stop_event = threading.Event()
