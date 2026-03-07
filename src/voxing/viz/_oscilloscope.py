@@ -1,30 +1,29 @@
 """Oscilloscope visualisation helpers — scrolling braille waveform trace."""
 
-from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
 from voxing.palette import (
     LAVENDER,
     MAUVE,
-    OVERLAY0,
     SAPPHIRE,
     SKY,
-    SURFACE1,
-    SURFACE2,
     TEAL,
 )
 from voxing.viz._braille import bresenham_line
 from voxing.viz._protocol import (
-    MIN_ROLLING_MAX,
     NOISE_GATE,
-    ROLLING_MAX_DECAY,
     ColorGrid,
     VizFrame,
 )
 
-OSCILLO_WINDOW = 8000  # ~0.5s at 16kHz — enough for 3-4 periods of 100 Hz speech
+OSCILLO_WINDOW = 4000  # ~0.25s at 16kHz — enough for 2+ periods of 100 Hz speech
+OSCILLO_MIN_ROLLING_MAX = 0.05
+OSCILLO_ROLLING_MAX_DECAY = 0.975
+OSCILLO_LEVEL_PERCENTILE = 95.0
+OSCILLO_COMPAND_GAMMA = 0.85
+OSCILLO_NOISE_GATE = NOISE_GATE * 0.7
 
 # Catppuccin Mocha amplitude colour ramp: center (cool) → extremes (warm)
 _AMPLITUDE_PALETTE: tuple[str, ...] = (
@@ -36,9 +35,6 @@ _AMPLITUDE_PALETTE: tuple[str, ...] = (
 )
 
 
-_PHOSPHOR_COLORS: tuple[str, ...] = (SURFACE1, SURFACE2, OVERLAY0)
-
-
 @dataclass
 class OscilloscopeState:
     """Circular buffer for raw audio samples."""
@@ -46,8 +42,7 @@ class OscilloscopeState:
     ring: np.ndarray
     write_pos: int = 0
     filled: int = 0
-    rolling_max: float = MIN_ROLLING_MAX
-    trace_history: deque[np.ndarray] = field(default_factory=lambda: deque(maxlen=3))
+    rolling_max: float = OSCILLO_MIN_ROLLING_MAX
 
 
 def _build_oscillo_state(capacity: int = OSCILLO_WINDOW) -> OscilloscopeState:
@@ -98,74 +93,26 @@ def _find_trigger_offset(samples: np.ndarray) -> int:
     return int(crossings[0])
 
 
-def _bresenham_rasterize(
-    pixel_xs: np.ndarray,
-    pixel_ys: np.ndarray,
-    width: int,
-    height: int,
-    grid: np.ndarray,
-    collect_cells: set[tuple[int, int]] | None = None,
-) -> None:
-    """Draw connected lines between consecutive points using Bresenham's algorithm."""
+def _render_oscillo_rows(state: OscilloscopeState, width: int, height: int) -> VizFrame:
+    """Render a single clean oscilloscope trace via Bresenham lines in braille."""
     dot_w = width * 2
     dot_h = height * 4
-    n = len(pixel_xs)
-    for i in range(n - 1):
-        x0, y0 = int(pixel_xs[i]), int(pixel_ys[i])
-        x1, y1 = int(pixel_xs[i + 1]), int(pixel_ys[i + 1])
-        bresenham_line(x0, y0, x1, y1, grid, width, height, dot_w, dot_h)
-        if collect_cells is not None:
-            _collect_bresenham_cells(x0, y0, x1, y1, width, height, collect_cells)
-
-
-def _collect_bresenham_cells(
-    x0: int,
-    y0: int,
-    x1: int,
-    y1: int,
-    width: int,
-    height: int,
-    cells: set[tuple[int, int]],
-) -> None:
-    """Record all char cells touched by a Bresenham line segment."""
-    dx = abs(x1 - x0)
-    dy = abs(y1 - y0)
-    sx = 1 if x0 < x1 else -1
-    sy = 1 if y0 < y1 else -1
-    err = dx - dy
-    while True:
-        cc, cr = x0 >> 1, y0 >> 2
-        if 0 <= cc < width and 0 <= cr < height:
-            cells.add((cr, cc))
-        if x0 == x1 and y0 == y1:
-            break
-        e2 = err * 2
-        if e2 > -dy:
-            err -= dy
-            x0 += sx
-        if e2 < dx:
-            err += dx
-            y0 += sy
-
-
-def _render_oscillo_rows(state: OscilloscopeState, width: int, height: int) -> VizFrame:
-    """Render the oscilloscope trace as connected Bresenham lines in braille.
-
-    One sample per braille dot-column (display_count = width * 2).
-    Downsamples to 2x display_count for trigger search headroom, then slices
-    exactly display_count samples from the trigger point — no zero-padding.
-    """
-    dot_h = height * 4
-    display_count = width * 2  # one sample per braille dot-column
+    display_count = dot_w  # one sample per braille dot-column
     oversample = display_count * 2  # 2x headroom for trigger search
 
     grid_arr = np.zeros((height, width), dtype=np.int32)
     default_color = _AMPLITUDE_PALETTE[0]
 
     if state.filled == 0:
-        grid = grid_arr.tolist()
-        colors = [[default_color] * width for _ in range(height)]
-        return VizFrame(grid=grid, colors=colors)
+        # Silent: draw a flat line at center via Bresenham
+        mid_y = (dot_h - 1) // 2
+        bresenham_line(
+            0, mid_y, dot_w - 1, mid_y, grid_arr, width, height, dot_w, dot_h
+        )
+        return VizFrame(
+            grid=grid_arr.tolist(),
+            colors=[[default_color] * width for _ in range(height)],
+        )
 
     cap = len(state.ring)
     available = min(state.filled, cap)
@@ -180,11 +127,17 @@ def _render_oscillo_rows(state: OscilloscopeState, width: int, height: int) -> V
     # Box-average downsample to oversampled buffer
     samples = _box_average_downsample(raw, oversample)
     samples = samples[::-1].copy()
-    samples[np.abs(samples) < NOISE_GATE] = 0.0
+    samples[np.abs(samples) < OSCILLO_NOISE_GATE] = 0.0
 
-    peak = float(np.max(np.abs(samples)))
-    state.rolling_max = max(state.rolling_max * ROLLING_MAX_DECAY, peak, 1e-4)
+    level = float(np.percentile(np.abs(samples), OSCILLO_LEVEL_PERCENTILE))
+    state.rolling_max = max(
+        state.rolling_max * OSCILLO_ROLLING_MAX_DECAY,
+        level,
+        OSCILLO_MIN_ROLLING_MAX,
+    )
     samples = samples / state.rolling_max
+    samples = np.sign(samples) * np.power(np.abs(samples), OSCILLO_COMPAND_GAMMA)
+    np.clip(samples, -1.0, 1.0, out=samples)
 
     # Edge trigger on oversampled buffer, then slice exactly display_count
     trigger = _find_trigger_offset(samples)
@@ -195,57 +148,39 @@ def _render_oscillo_rows(state: OscilloscopeState, width: int, height: int) -> V
     # Map to braille pixel y-coordinates
     pixel_ys = ((samples + 1.0) * 0.5 * (dot_h - 1)).astype(np.int32)
     np.clip(pixel_ys, 0, dot_h - 1, out=pixel_ys)
-    pixel_xs = np.arange(display_count, dtype=np.int32)
 
-    # Paint older phosphor traces (dim ghost trails)
-    phosphor_cells: dict[tuple[int, int], str] = {}
-    for trace_idx, old_ys in enumerate(state.trace_history):
-        phosphor_color = _PHOSPHOR_COLORS[min(trace_idx, len(_PHOSPHOR_COLORS) - 1)]
-        n = min(len(old_ys), display_count)
-        old_xs = np.arange(n, dtype=np.int32)
-        _bresenham_rasterize(old_xs, old_ys[:n], width, height, grid_arr)
-        # Record phosphor cell locations
-        for i in range(n):
-            cc = int(old_xs[i]) >> 1
-            cr = int(old_ys[i]) >> 2
-            if 0 <= cc < width and 0 <= cr < height:
-                phosphor_cells[(cr, cc)] = phosphor_color
+    # Single Bresenham trace — no phosphor, no separate midline
+    for i in range(display_count - 1):
+        bresenham_line(
+            i,
+            int(pixel_ys[i]),
+            i + 1,
+            int(pixel_ys[i + 1]),
+            grid_arr,
+            width,
+            height,
+            dot_w,
+            dot_h,
+        )
 
-    state.trace_history.append(pixel_ys.copy())
-
-    # Paint current trace with Bresenham lines, collecting all touched cells
-    current_cells: set[tuple[int, int]] = set()
-    _bresenham_rasterize(
-        pixel_xs, pixel_ys, width, height, grid_arr, collect_cells=current_cells
-    )
-
-    # Amplitude-based color: distance from center → palette index
+    # Amplitude-based coloring: distance from center → palette index
     mid_y = (dot_h - 1) / 2.0
-    # Per dot-column: absolute distance from center, normalized to [0, 1]
     amp_norm = np.abs(pixel_ys.astype(np.float64) - mid_y) / mid_y
     np.clip(amp_norm, 0.0, 1.0, out=amp_norm)
     # Pair dot-columns into char columns (max of each pair)
-    padded = amp_norm[:display_count]
     if display_count % 2:
-        padded = np.append(padded, 0.0)
-    cell_amp = np.maximum(padded[0::2], padded[1::2])[:width]
+        amp_norm = np.append(amp_norm, 0.0)
+    cell_amp = np.maximum(amp_norm[0::2], amp_norm[1::2])[:width]
 
-    # Build color grid
     n_colors = len(_AMPLITUDE_PALETTE)
     color_indices = np.minimum(
         (cell_amp * (n_colors - 1)).astype(np.int32), n_colors - 1
     )
     colors: ColorGrid = []
     for _ in range(height):
-        row_colors = [
-            _AMPLITUDE_PALETTE[int(color_indices[col])] for col in range(width)
-        ]
-        colors.append(row_colors)
-
-    # Apply phosphor colors only to cells not touched by current trace
-    for (r, c), color in phosphor_cells.items():
-        if (r, c) not in current_cells:
-            colors[r][c] = color
+        colors.append(
+            [_AMPLITUDE_PALETTE[int(color_indices[col])] for col in range(width)]
+        )
 
     return VizFrame(grid=grid_arr.tolist(), colors=colors)
 

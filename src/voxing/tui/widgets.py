@@ -30,7 +30,7 @@ class VizWidget(Widget):
     }
     """
 
-    def __init__(self, viz: Visualizer, refresh_rate: float = 10.0) -> None:
+    def __init__(self, viz: Visualizer, refresh_rate: float = 30.0) -> None:
         super().__init__()
         self._viz = viz
         self._refresh_rate = refresh_rate

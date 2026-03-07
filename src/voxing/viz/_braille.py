@@ -30,54 +30,6 @@ def set_braille_pixel(
         grid[char_row, char_col] |= BRAILLE_BITS[sub_row][sub_col]
 
 
-def draw_circle(
-    cx: int,
-    cy: int,
-    radius: int,
-    grid: np.ndarray,
-    width: int,
-    height: int,
-    dot_w: int,
-    dot_h: int,
-    color_grid: "ColorGrid | None" = None,
-    color: str | None = None,
-) -> None:
-    """Draw a circle using the midpoint circle algorithm.
-
-    Uses 8-way symmetry for a smooth, gap-free ring at any radius.
-    """
-    x, y = 0, radius
-    d = 1 - radius
-
-    def _plot8(px: int, py: int) -> None:
-        for dx, dy in (
-            (px, py),
-            (-px, py),
-            (px, -py),
-            (-px, -py),
-            (py, px),
-            (-py, px),
-            (py, -px),
-            (-py, -px),
-        ):
-            bx, by = cx + dx, cy + dy
-            if 0 <= bx < dot_w and 0 <= by < dot_h:
-                set_braille_pixel(grid, bx, by, width, height)
-                if color_grid is not None and color is not None:
-                    cr, cc = by >> 2, bx >> 1
-                    if 0 <= cr < height and 0 <= cc < width:
-                        color_grid[cr][cc] = color
-
-    while x <= y:
-        _plot8(x, y)
-        if d < 0:
-            d += 2 * x + 3
-        else:
-            d += 2 * (x - y) + 5
-            y -= 1
-        x += 1
-
-
 def bresenham_line(
     x0: int,
     y0: int,
@@ -90,10 +42,11 @@ def bresenham_line(
     dot_h: int,
     color_grid: "ColorGrid | None" = None,
     color: str | None = None,
+    collect_cells: set[tuple[int, int]] | None = None,
 ) -> None:
     """Draw a line using Bresenham's algorithm.
 
-    Paints braille pixels in grid. Optionally updates color_grid if provided.
+    Paints braille pixels in grid. Optionally updates color_grid and/or collect_cells.
     """
     dx = abs(x1 - x0)
     dy = -abs(y1 - y0)
@@ -104,11 +57,13 @@ def bresenham_line(
     while True:
         if 0 <= x0 < dot_w and 0 <= y0 < dot_h:
             set_braille_pixel(grid, x0, y0, width, height)
-            if color_grid is not None and color is not None:
-                cr = y0 >> 2
-                cc = x0 >> 1
-                if 0 <= cr < height and 0 <= cc < width:
+            cr = y0 >> 2
+            cc = x0 >> 1
+            if 0 <= cr < height and 0 <= cc < width:
+                if color_grid is not None and color is not None:
                     color_grid[cr][cc] = color
+                if collect_cells is not None:
+                    collect_cells.add((cr, cc))
         if x0 == x1 and y0 == y1:
             break
         e2 = 2 * err

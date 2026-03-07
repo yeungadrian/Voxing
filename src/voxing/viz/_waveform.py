@@ -13,8 +13,6 @@ from voxing.palette import (
     SURFACE2,
 )
 from voxing.viz._protocol import (
-    MIN_ROLLING_MAX,
-    NOISE_GATE,
     ROLLING_MAX_DECAY,
     BrailleGrid,
     ColorGrid,
@@ -27,6 +25,8 @@ LOG_K = 20.0
 _LOG1P_K = float(np.log1p(LOG_K))
 BAR_GAP = 1
 MIN_AMP = 0.08
+MIN_ROLLING_MAX_WAVEFORM = 0.35
+WAVEFORM_NOISE_FLOOR = 0.0025
 VIZ_WINDOW = 16000  # ~1 s at 16 kHz
 
 # Catppuccin Mocha gradient: bottom (muted) → top (accent)
@@ -43,7 +43,7 @@ _WAVEFORM_GRADIENT: tuple[str, ...] = (
 
 
 def peaks(buf: np.ndarray, num_bars: int) -> np.ndarray:
-    """Compute per-bar peak amplitudes using vectorised reduceat."""
+    """Compute per-bar RMS amplitudes and compress for display."""
     buf = buf[-VIZ_WINDOW:]
     n = len(buf)
     if n == 0:
@@ -52,11 +52,17 @@ def peaks(buf: np.ndarray, num_bars: int) -> np.ndarray:
     # Ensure no duplicate indices (can happen when num_bars > n)
     indices = np.unique(indices)
     actual_bars = len(indices) - 1
-    abs_buf = np.abs(buf)
-    raw = np.maximum.reduceat(abs_buf, indices[:-1])[:actual_bars]
+    sq_buf = buf * buf
+    sq_sums = np.add.reduceat(sq_buf, indices[:-1])[:actual_bars]
+    counts = np.diff(indices).astype(np.float32)
+    raw = np.sqrt(sq_sums / np.maximum(counts, 1.0))
     if actual_bars < num_bars:
         raw = np.pad(raw, (0, num_bars - actual_bars))
-    raw[raw < NOISE_GATE] = 0.0
+
+    raw = np.maximum(raw - WAVEFORM_NOISE_FLOOR, 0.0)
+    if len(raw) >= 3:
+        raw = np.convolve(raw, np.array([0.2, 0.6, 0.2], dtype=np.float32), mode="same")
+
     compressed = np.sqrt(np.log1p(raw * LOG_K) / _LOG1P_K)
     return compressed.astype(np.float32)
 
@@ -77,7 +83,7 @@ class WaveformViz:
 
     def __init__(self) -> None:
         self._buf = np.empty(0, dtype=np.float32)
-        self._rolling_max: float = MIN_ROLLING_MAX
+        self._rolling_max: float = MIN_ROLLING_MAX_WAVEFORM
         self._cached_width: int = 0
         self._cached_columns: list[int | None] = []
         self._cached_num_bars: int = 0
@@ -98,7 +104,7 @@ class WaveformViz:
 
         frame_max = float(amps_raw.max()) if len(amps_raw) > 0 else 0.0
         self._rolling_max = max(
-            self._rolling_max * ROLLING_MAX_DECAY, frame_max, MIN_AMP
+            self._rolling_max * ROLLING_MAX_DECAY, frame_max, MIN_ROLLING_MAX_WAVEFORM
         )
 
         amps = np.maximum(amps_raw / self._rolling_max, MIN_AMP)
@@ -126,8 +132,9 @@ class WaveformViz:
                 row_bits.append(bits)
                 # Pure height gradient: row position determines color
                 if bits:
-                    row_frac = 1.0 - (y * 4 + 2) / total_dots
-                    row_frac = max(0.0, min(1.0, row_frac))
+                    row_frac = (
+                        1.0 if height <= 1 else 1.0 - y / float(max(height - 1, 1))
+                    )
                     color_idx = min(int(row_frac * (n_colors - 1)), n_colors - 1)
                     row_colors.append(_WAVEFORM_GRADIENT[color_idx])
                 else:
