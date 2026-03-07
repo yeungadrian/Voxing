@@ -13,30 +13,18 @@ from voxing.palette import (
     YELLOW,
 )
 
-# Semantic aliases used throughout the app — re-exported for backward compatibility
-PRIMARY = BLUE
-SECONDARY = MAUVE
-ACCENT = TEAL
-BACKGROUND = BASE
-SURFACE = SURFACE0
-PANEL = SURFACE1
-FOREGROUND = TEXT
-SUCCESS = GREEN
-WARNING = YELLOW
-ERROR = RED
-
 CATPPUCCIN_MOCHA = Theme(
     name="catppuccin-mocha",
-    primary=PRIMARY,
-    secondary=SECONDARY,
-    accent=ACCENT,
-    background=BACKGROUND,
-    surface=SURFACE,
-    panel=PANEL,
-    foreground=FOREGROUND,
-    success=SUCCESS,
-    warning=WARNING,
-    error=ERROR,
+    primary=BLUE,
+    secondary=MAUVE,
+    accent=TEAL,
+    background=BASE,
+    surface=SURFACE0,
+    panel=SURFACE1,
+    foreground=TEXT,
+    success=GREEN,
+    warning=YELLOW,
+    error=RED,
     dark=True,
     luminosity_spread=3,
     text_alpha=0.95,

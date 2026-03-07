@@ -10,7 +10,7 @@ from textual.strip import Strip
 from textual.widget import Widget
 from textual.widgets import Markdown, Static, TextArea
 
-from voxing.tui.theme import PRIMARY
+from voxing.palette import BLUE
 from voxing.viz import (
     BRAILLE_BASE,
     OscilloscopeViz,
@@ -35,7 +35,7 @@ class VizWidget(Widget):
         self._viz = viz
         self._refresh_rate = refresh_rate
         self._frame: VizFrame | None = None
-        self._style = Style.parse(PRIMARY)
+        self._style = Style.parse(BLUE)
         self._color_cache: dict[str, Style] = {}
 
     def on_mount(self) -> None:
@@ -94,6 +94,7 @@ SLASH_COMMANDS: dict[str, str] = {
     "/settings": "Open settings panel",
     "/clear": "Clear chat history",
     "/help": "Show available commands",
+    "/exit": "Quit the application",
 }
 
 CURSOR = "\u258c"
@@ -112,7 +113,7 @@ class WelcomeMessage(Static):
     """
 
     def __init__(self) -> None:
-        super().__init__(f"[bold {PRIMARY}]voxing[/]\n\n[dim]local voice assistant[/]")
+        super().__init__("[bold $primary]voxing[/]\n\n[dim]local voice assistant[/]")
 
 
 class MemoryDisplay(Static):

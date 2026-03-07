@@ -15,9 +15,9 @@ from rich.panel import Panel
 from rich.text import Text
 
 from voxing.config import Settings
+from voxing.palette import BLUE, TEXT
 from voxing.parakeet import load_model
 from voxing.stt import RealtimeTranscriber
-from voxing.tui.theme import FOREGROUND, PRIMARY
 from voxing.viz import (
     BRAILLE_BASE,
     OscilloscopeViz,
@@ -43,7 +43,7 @@ def _render_frame(frame: VizFrame) -> str:
         chars: list[str] = []
         for col_idx, bits in enumerate(row):
             if bits:
-                color = color_row[col_idx] if color_row is not None else PRIMARY
+                color = color_row[col_idx] if color_row is not None else BLUE
                 chars.append(f"[{color}]{chr(BRAILLE_BASE + bits)}[/]")
             else:
                 chars.append(" ")
@@ -95,7 +95,7 @@ def _make_renderable(width: int, transcription: list[str]) -> Group:
         Panel(
             Text.from_markup(text),
             title="transcription",
-            border_style=f"dim {FOREGROUND}",
+            border_style=f"dim {TEXT}",
         ),
     )
 

@@ -90,6 +90,7 @@ class RealtimeTranscriber:
                 self._chunk_samples,
                 self._on_chunk,
             ),
+            daemon=True,
         )
         self._thread.start()
         return self
@@ -97,7 +98,7 @@ class RealtimeTranscriber:
     def __exit__(self, *args: object) -> None:
         self._stop_event.set()
         if self._thread is not None:
-            self._thread.join()
+            self._thread.join(timeout=2.0)
 
     def __iter__(self) -> Iterator[str]:
         # TODO: Separate draft vs confirmed so we can display difference to user.
@@ -108,7 +109,12 @@ class RealtimeTranscriber:
         chunks_since_decode = 0
 
         while True:
-            chunk = self._chunk_queue.get()
+            try:
+                chunk = self._chunk_queue.get(timeout=0.2)
+            except queue.Empty:
+                if self._stop_event.is_set():
+                    break
+                continue
             if chunk is None:
                 break
             buffer.append(chunk)

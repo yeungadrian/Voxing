@@ -19,7 +19,6 @@ from voxing.tui.messages import (
     TranscriptionUpdate,
 )
 from voxing.tui.screens.settings import SettingsResult, SettingsScreen
-from voxing.tui.theme import ERROR, PRIMARY, SUCCESS, WARNING
 from voxing.tui.widgets import (
     SLASH_COMMANDS,
     AssistantMessage,
@@ -102,8 +101,11 @@ class ChatScreen(Screen[None]):
             self._handle_transcribe()
         elif text == "/help":
             self._handle_help()
+        elif text == "/exit":
+            self.shutdown_workers()
+            self.app.exit()
         elif text.startswith("/"):
-            self.footer_bar.set_status(f"[{ERROR}]Unknown command: {text}[/]")
+            self.footer_bar.set_status(f"[$error]Unknown command: {text}[/]")
         else:
             self._send_message(text)
 
@@ -113,7 +115,7 @@ class ChatScreen(Screen[None]):
         self._messages = [
             {"role": "system", "content": self._settings.llm_system_prompt}
         ]
-        self.footer_bar.set_status(f"[{SUCCESS}]Chat cleared[/]")
+        self.footer_bar.set_status("[$success]Chat cleared[/]")
 
     def _handle_settings(self) -> None:
         self.app.push_screen(
@@ -131,13 +133,13 @@ class ChatScreen(Screen[None]):
             "role": "system",
             "content": self._settings.llm_system_prompt,
         }
-        self.footer_bar.set_status(f"[{SUCCESS}]Settings saved[/]")
+        self.footer_bar.set_status("[$success]Settings saved[/]")
 
     def _handle_transcribe(self) -> None:
         self._remove_welcome()
         self._transcribe_cancel.clear()
         self.chat_input.disabled = True
-        self.footer_bar.set_status(f"[{WARNING}]Loading STT model...[/]")
+        self.footer_bar.set_status("[$warning]Loading STT model...[/]")
         self._transcription_display = TranscriptionDisplay(
             audio_visual=self._settings.audio_visual,
             sample_rate=self._settings.sample_rate,
@@ -158,6 +160,17 @@ class ChatScreen(Screen[None]):
         self.message_list.add_user_message(text)
         self._current_assistant_msg = None
         self._generate(text)
+
+    def shutdown_workers(self) -> None:
+        """Signal all background workers to stop."""
+        self._transcribe_cancel.set()
+        with self._transcriber_lock:
+            transcriber = self._active_transcriber
+        if transcriber is not None:
+            transcriber.stop()
+
+    def on_unmount(self) -> None:
+        self.shutdown_workers()
 
     def on_key(self, event: Key) -> None:
         if event.key == "escape" and not self._transcribe_cancel.is_set():
@@ -181,11 +194,11 @@ class ChatScreen(Screen[None]):
         error: str | None = None
         try:
             self.app.call_from_thread(
-                self.footer_bar.set_status, f"[{WARNING}]Loading LLM...[/]"
+                self.footer_bar.set_status, "[$warning]Loading LLM...[/]"
             )
             model, tokenizer = load_llm(self._settings.llm_model_id)
             self.app.call_from_thread(
-                self.footer_bar.set_status, f"[{PRIMARY}]Generating...[/]"
+                self.footer_bar.set_status, "[$primary]Generating...[/]"
             )
 
             agent = LocalAgent(
@@ -218,7 +231,7 @@ class ChatScreen(Screen[None]):
         error: str | None = None
         try:
             self.app.call_from_thread(
-                self.footer_bar.set_status, f"[{WARNING}]Loading STT model...[/]"
+                self.footer_bar.set_status, "[$warning]Loading STT model...[/]"
             )
             model = load_stt(self._settings.model_id)
             self.app.call_from_thread(
@@ -273,7 +286,7 @@ class ChatScreen(Screen[None]):
         self.chat_input.disabled = False
         self.chat_input.focus()
         if message.error:
-            self.footer_bar.set_status(f"[{ERROR}]Generation error: {message.error}[/]")
+            self.footer_bar.set_status(f"[$error]Generation error: {message.error}[/]")
         else:
             self.footer_bar.set_status(_IDLE_STATUS)
 
@@ -297,7 +310,7 @@ class ChatScreen(Screen[None]):
         self.chat_input.focus()
         if message.error:
             self.footer_bar.set_status(
-                f"[{ERROR}]Transcription error: {message.error}[/]"
+                f"[$error]Transcription error: {message.error}[/]"
             )
         else:
             self.footer_bar.set_status("[dim]enter to send  ·  type / for commands[/]")
