@@ -5,9 +5,12 @@ import sounddevice as sd
 
 from voxing.kokoro import load_model
 
-model = load_model()
+model = load_model("mlx-community/Kokoro-82M-bf16")
 
-text = "Hello! This is a test of the Kokoro text to speech model running on Apple Silicon with MLX."
+text = (
+    "Hello! This is a test of the Kokoro text to speech model running on "
+    "Apple Silicon with MLX."
+)
 
 for result in model.generate(text, voice="af_heart", speed=1.0):
     print(

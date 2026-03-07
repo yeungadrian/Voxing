@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import cast
 
 import mlx.core as mx
 from huggingface_hub import snapshot_download
@@ -20,17 +21,25 @@ def _resolve_kokoro_path(model_id: str) -> Path:
     )
 
 
-def load_model(model_id: str = "prince-canuma/Kokoro-82M") -> Model:
+def load_model(model_id: str = "mlx-community/Kokoro-82M-bf16") -> Model:
     """Download (if needed) and load a Kokoro TTS model from HuggingFace Hub."""
     model_path = _resolve_kokoro_path(model_id)
     config = json.loads((model_path / "config.json").read_text())
-    model_config = ModelConfig.from_dict(config)
-    model = Model(model_config, repo_id=model_id)  # ty: ignore
+    model_config = cast(ModelConfig, ModelConfig.from_dict(config))
+    model = Model(model_config, repo_id=model_id)
 
     weight_files = list(model_path.glob("*.safetensors"))
     weights: dict[str, mx.array] = {}
     for wf in weight_files:
-        loaded: dict[str, mx.array] = mx.load(str(wf))  # ty: ignore
+        loaded_raw = mx.load(str(wf))
+        if isinstance(loaded_raw, tuple):
+            if not isinstance(loaded_raw[0], dict):
+                raise TypeError(f"Unexpected weights format from {wf}")
+            loaded = cast(dict[str, mx.array], loaded_raw[0])
+        elif isinstance(loaded_raw, dict):
+            loaded = cast(dict[str, mx.array], loaded_raw)
+        else:
+            raise TypeError(f"Unexpected weights format from {wf}")
         weights.update(loaded)
 
     weights = model.sanitize(weights)

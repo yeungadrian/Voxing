@@ -4,7 +4,8 @@ Vendored from mlx-audio (https://github.com/Blaizzy/mlx-audio).
 """
 
 import math
-from typing import Optional, Union
+from collections.abc import Callable
+from typing import cast
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -12,6 +13,8 @@ import mlx.nn as nn
 from voxing.kokoro._base import check_array_shape
 from voxing.kokoro._dsp import istft, stft
 from voxing.kokoro._interpolate import interpolate
+
+type ConvFunction = Callable[..., mx.array]
 
 
 def get_padding(kernel_size: int, dilation: int = 1) -> int:
@@ -21,7 +24,7 @@ def get_padding(kernel_size: int, dilation: int = 1) -> int:
 def compute_norm(
     x: mx.array,
     p: int,
-    dim: Optional[Union[int, list[int], tuple[int, ...]]] = None,
+    dim: int | list[int] | tuple[int, ...] | None = None,
     keepdim: bool = False,
 ) -> mx.array:
     """Compute the p-norm of a tensor along specified dimensions."""
@@ -35,12 +38,11 @@ def compute_norm(
 
     if p == 1:
         return mx.sum(mx.abs(x), axis=dim, keepdims=keepdim)
-    else:
-        return mx.sqrt(mx.sum(x * x, axis=dim, keepdims=keepdim))
+    return mx.sqrt(mx.sum(x * x, axis=dim, keepdims=keepdim))
 
 
 def weight_norm(
-    weight_v: mx.array, weight_g: mx.array, dim: Optional[int] = None
+    weight_v: mx.array, weight_g: mx.array, dim: int | None = None
 ) -> mx.array:
     """Apply weight normalization: w = g * v/||v||."""
     rank = len(weight_v.shape)
@@ -84,16 +86,12 @@ class ConvWeighted(nn.Module):
         self.weight_v = mx.ones((out_channels, kernel_size, in_channels))
         self.bias = mx.zeros(in_channels if encode else out_channels) if bias else None
 
-    def __call__(self, x: mx.array, conv: object) -> mx.array:
+    def __call__(self, x: mx.array, conv: ConvFunction) -> mx.array:
         weight = weight_norm(self.weight_v, self.weight_g, dim=0)
-
-        if self.bias is not None:
-            bias = self.bias.reshape(1, 1, -1)
-        else:
-            bias = None
+        bias = self.bias.reshape(1, 1, -1) if self.bias is not None else None
 
         def apply_conv(x: mx.array, weight_to_use: mx.array) -> mx.array:
-            result = conv(  # ty: ignore
+            result = conv(
                 x,
                 weight_to_use,
                 stride=self.stride,
@@ -107,8 +105,7 @@ class ConvWeighted(nn.Module):
 
         if x.shape[-1] == weight.shape[-1] or self.groups > 1:
             return apply_conv(x, weight)
-        else:
-            return apply_conv(x, weight.T)
+        return apply_conv(x, weight.T)
 
 
 class _InstanceNorm(nn.Module):
@@ -163,11 +160,13 @@ class _InstanceNorm(nn.Module):
         x_norm = (input - mean) / mx.sqrt(var + self.eps)
 
         if self.affine:
+            assert self.weight is not None
+            assert self.bias is not None
             weight_shape = [1] * input.ndim
             weight_shape[feature_dim] = self.num_features
             bias_shape = weight_shape.copy()
-            w = mx.reshape(self.weight, weight_shape)  # ty: ignore
-            b = mx.reshape(self.bias, bias_shape)  # ty: ignore
+            w = mx.reshape(self.weight, weight_shape)
+            b = mx.reshape(self.bias, bias_shape)
             return x_norm * w + b
         return x_norm
 
@@ -238,7 +237,13 @@ class AdaINResBlock1(nn.Module):
 
     def __call__(self, x: mx.array, s: mx.array) -> mx.array:
         for c1, c2, n1, n2, a1, a2 in zip(
-            self.convs1, self.convs2, self.adain1, self.adain2, self.alpha1, self.alpha2
+            self.convs1,
+            self.convs2,
+            self.adain1,
+            self.adain2,
+            self.alpha1,
+            self.alpha2,
+            strict=False,
         ):
             xt = n1(x, s)
             xt = xt + (1 / a1) * (mx.sin(a1 * xt) ** 2)
@@ -274,7 +279,12 @@ def mlx_angle(z: mx.array, deg: bool = False) -> mx.array:
     return a
 
 
-def mlx_unwrap(p: mx.array, discont: float | None = None, axis: int = -1, period: float = 2 * math.pi) -> mx.array:
+def mlx_unwrap(
+    p: mx.array,
+    discont: float | None = None,
+    axis: int = -1,
+    period: float = 2 * math.pi,
+) -> mx.array:
     if discont is None:
         discont = period / 2
     discont = max(discont, period / 2)
@@ -309,7 +319,11 @@ def mlx_unwrap(p: mx.array, discont: float | None = None, axis: int = -1, period
 
 class MLXSTFT:
     def __init__(
-        self, filter_length: int = 800, hop_length: int = 200, win_length: int = 800, window: str = "hann"
+        self,
+        filter_length: int = 800,
+        hop_length: int = 200,
+        win_length: int = 800,
+        window: str = "hann",
     ):
         self.filter_length = filter_length
         self.hop_length = hop_length
@@ -375,7 +389,7 @@ class SineGen:
     def __init__(
         self,
         samp_rate: int,
-        upsample_scale: int | mx.array,
+        upsample_scale: int,
         harmonic_num: int = 0,
         sine_amp: float = 0.1,
         noise_std: float = 0.003,
@@ -405,19 +419,19 @@ class SineGen:
         if not self.flag_for_pulse:
             rad_values = interpolate(
                 rad_values.transpose(0, 2, 1),
-                scale_factor=1 / self.upsample_scale,
+                scale_factor=1 / float(self.upsample_scale),
                 mode="linear",
             ).transpose(0, 2, 1)
             phase = mx.cumsum(rad_values, axis=1) * 2 * mx.pi
             phase = interpolate(
                 phase.transpose(0, 2, 1) * self.upsample_scale,
-                scale_factor=self.upsample_scale,
+                scale_factor=float(self.upsample_scale),
                 mode="linear",
             ).transpose(0, 2, 1)
             sines = mx.sin(phase)
         else:
             uv = self._f02uv(f0_values)
-            uv_1 = mx.roll(uv, shifts=-1, axis=1)
+            uv_1 = mx.roll(uv, -1, 1)
             uv_1[:, -1, :] = 1
             u_loc = (uv < 1) * (uv_1 > 0)
             tmp_cumsum = mx.cumsum(rad_values, axis=1)
@@ -444,7 +458,7 @@ class SourceModuleHnNSF(nn.Module):
     def __init__(
         self,
         sampling_rate: int,
-        upsample_scale: int | mx.array,
+        upsample_scale: int,
         harmonic_num: int = 0,
         sine_amp: float = 0.1,
         add_noise_std: float = 0.003,
@@ -476,7 +490,12 @@ class ReflectionPad1d(nn.Module):
         self.padding = padding
 
     def __call__(self, x: mx.array) -> mx.array:
-        return mx.pad(x, ((0, 0), (0, 0), (self.padding[0], self.padding[1])))
+        pad_width: list[tuple[int, int]] = [
+            (0, 0),
+            (0, 0),
+            (self.padding[0], self.padding[1]),
+        ]
+        return mx.pad(x, pad_width)
 
 
 def leaky_relu(x: mx.array, negative_slope: float = 0.01) -> mx.array:
@@ -499,19 +518,20 @@ class Generator(nn.Module):
         self.num_kernels = len(resblock_kernel_sizes)
         self.num_upsamples = len(upsample_rates)
         upsample_rates_arr = mx.array(upsample_rates)
+        upsample_scale = int(mx.prod(upsample_rates_arr)) * gen_istft_hop_size
         self.m_source = SourceModuleHnNSF(
             sampling_rate=24000,
-            upsample_scale=mx.prod(upsample_rates_arr) * gen_istft_hop_size,
+            upsample_scale=upsample_scale,
             harmonic_num=8,
             voiced_threshod=10,
         )
-        self.f0_upsamp = nn.Upsample(
-            scale_factor=mx.prod(upsample_rates_arr) * gen_istft_hop_size  # ty: ignore
-        )
+        self.f0_upsamp = nn.Upsample(scale_factor=upsample_scale)
         self.noise_convs: list[nn.Conv1d] = []
         self.noise_res: list[AdaINResBlock1] = []
         self.ups: list[ConvWeighted] = []
-        for i, (u, k) in enumerate(zip(upsample_rates, upsample_kernel_sizes)):
+        for i, (u, k) in enumerate(
+            zip(upsample_rates, upsample_kernel_sizes, strict=False)
+        ):
             self.ups.append(
                 ConvWeighted(
                     upsample_initial_channel // (2 ** (i + 1)),
@@ -523,12 +543,17 @@ class Generator(nn.Module):
                 )
             )
         self.resblocks: list[AdaINResBlock1] = []
+        if not self.ups:
+            raise ValueError("upsample_rates must not be empty")
+        final_channels = upsample_initial_channel // 2
         for i in range(len(self.ups)):
             ch = upsample_initial_channel // (2 ** (i + 1))
+            final_channels = ch
             for _j, (k, d) in enumerate(
-                zip(resblock_kernel_sizes, resblock_dilation_sizes)
+                zip(resblock_kernel_sizes, resblock_dilation_sizes, strict=False)
             ):
-                self.resblocks.append(AdaINResBlock1(ch, k, d, style_dim))
+                dilation = cast(tuple[int, int, int], tuple(d))
+                self.resblocks.append(AdaINResBlock1(ch, k, dilation, style_dim))
             c_cur = upsample_initial_channel // (2 ** (i + 1))
             if i + 1 < len(upsample_rates):
                 stride_f0 = int(mx.prod(upsample_rates_arr[i + 1 :]))
@@ -541,14 +566,16 @@ class Generator(nn.Module):
                         padding=(stride_f0 + 1) // 2,
                     )
                 )
-                self.noise_res.append(AdaINResBlock1(c_cur, 7, [1, 3, 5], style_dim))
+                self.noise_res.append(AdaINResBlock1(c_cur, 7, (1, 3, 5), style_dim))
             else:
                 self.noise_convs.append(
                     nn.Conv1d(gen_istft_n_fft + 2, c_cur, kernel_size=1)
                 )
-                self.noise_res.append(AdaINResBlock1(c_cur, 11, [1, 3, 5], style_dim))
+                self.noise_res.append(AdaINResBlock1(c_cur, 11, (1, 3, 5), style_dim))
         self.post_n_fft = gen_istft_n_fft
-        self.conv_post = ConvWeighted(ch, self.post_n_fft + 2, 7, 1, padding=3)
+        self.conv_post = ConvWeighted(
+            final_channels, self.post_n_fft + 2, 7, 1, padding=3
+        )
         self.reflection_pad = ReflectionPad1d((1, 0))
         self.stft = MLXSTFT(
             filter_length=gen_istft_n_fft,
@@ -577,12 +604,9 @@ class Generator(nn.Module):
                 x = self.reflection_pad(x)
             x = x + x_source
 
-            xs = None
-            for j in range(self.num_kernels):
-                if xs is None:
-                    xs = self.resblocks[i * self.num_kernels + j](x, s)
-                else:
-                    xs += self.resblocks[i * self.num_kernels + j](x, s)
+            xs = self.resblocks[i * self.num_kernels](x, s)
+            for j in range(1, self.num_kernels):
+                xs += self.resblocks[i * self.num_kernels + j](x, s)
             x = xs / self.num_kernels
 
         x = leaky_relu(x, negative_slope=0.01)
@@ -615,14 +639,14 @@ class AdainResBlk1d(nn.Module):
         dim_in: int,
         dim_out: int,
         style_dim: int = 64,
-        actv: nn.Module = nn.LeakyReLU(0.2),
+        actv: nn.Module | None = None,
         upsample: str | bool = "none",
         dropout_p: float = 0.0,
         bias: bool = False,
         conv_type: object = None,
     ):
         super().__init__()
-        self.actv = actv
+        self.actv = nn.LeakyReLU(0.2) if actv is None else actv
         self.dim_in = dim_in
         self.conv_type = conv_type
         if isinstance(upsample, bool):
@@ -632,9 +656,8 @@ class AdainResBlk1d(nn.Module):
         self.learned_sc = dim_in != dim_out
         self._build_weights(dim_in, dim_out, style_dim)
         self.dropout = nn.Dropout(dropout_p)
-        if upsample == "none":
-            self.pool = nn.Identity()
-        else:
+        self.pool: ConvWeighted | None = None
+        if upsample != "none":
             self.pool = ConvWeighted(
                 1, dim_in, kernel_size=3, stride=2, padding=1, groups=dim_in
             )
@@ -663,8 +686,11 @@ class AdainResBlk1d(nn.Module):
         x = self.norm1(x, s)
         x = self.actv(x)
         x = x.swapaxes(2, 1)
-        x = self.pool(x, mx.conv_transpose1d) if self.upsample_type != "none" else x  # ty: ignore
-        x = mx.pad(x, ((0, 0), (1, 0), (0, 0))) if self.upsample_type != "none" else x
+        if self.upsample_type != "none":
+            assert self.pool is not None
+            x = self.pool(x, mx.conv_transpose1d)
+            pad_width: list[tuple[int, int]] = [(0, 0), (1, 0), (0, 0)]
+            x = mx.pad(x, pad_width)
         x = x.swapaxes(2, 1)
 
         x = x.swapaxes(2, 1)
@@ -674,13 +700,11 @@ class AdainResBlk1d(nn.Module):
         x = self.norm2(x, s)
         x = self.actv(x)
         x = x.swapaxes(2, 1)
-        x = self.conv2(x, mx.conv1d)
-        x = x.swapaxes(2, 1)
-        return x
+        return self.conv2(x, mx.conv1d).swapaxes(2, 1)
 
     def __call__(self, x: mx.array, s: mx.array) -> mx.array:
         out = self._residual(x, s)
-        return (out + self._shortcut(x)) / mx.sqrt(2)
+        return (out + self._shortcut(x)) / mx.sqrt(mx.array(2.0))
 
 
 class Decoder(nn.Module):
@@ -721,7 +745,13 @@ class Decoder(nn.Module):
             gen_istft_hop_size,
         )
 
-    def __call__(self, asr: mx.array, F0_curve: mx.array, N: mx.array, s: mx.array) -> mx.array:
+    def __call__(
+        self,
+        asr: mx.array,
+        F0_curve: mx.array,
+        N: mx.array,
+        s: mx.array,
+    ) -> mx.array:
         s = mx.array(s)
         F0 = self.F0_conv(F0_curve[:, None, :].swapaxes(2, 1), mx.conv1d).swapaxes(2, 1)
         N = self.N_conv(N[:, None, :].swapaxes(2, 1), mx.conv1d).swapaxes(2, 1)
@@ -735,13 +765,12 @@ class Decoder(nn.Module):
             x = block(x, s)
             if hasattr(block, "upsample_type") and block.upsample_type != "none":
                 res = False
-        x = self.generator(x, s, F0_curve)
-        return x
+        return self.generator(x, s, F0_curve)
 
     def sanitize(self, key: str, weights: mx.array) -> mx.array:
         if "noise_convs" in key and key.endswith(".weight"):
             return weights.transpose(0, 2, 1)
-        elif "weight_v" in key:
+        if "weight_v" in key:
             if check_array_shape(weights):
                 return weights
             return weights.transpose(0, 2, 1)

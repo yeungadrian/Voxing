@@ -3,17 +3,17 @@
 Vendored from mlx-audio (https://github.com/Blaizzy/mlx-audio).
 """
 
-from typing import Optional, Union
+import math
 
 import mlx.core as mx
 
 
 def interpolate(
     input: mx.array,
-    size: Optional[Union[int, tuple[int, ...], list[int]]] = None,
-    scale_factor: Optional[Union[float, list[float], tuple[float, ...]]] = None,
+    size: int | tuple[int, ...] | list[int] | None = None,
+    scale_factor: float | list[float] | tuple[float, ...] | None = None,
     mode: str = "nearest",
-    align_corners: Optional[bool] = None,
+    align_corners: bool | None = None,
 ) -> mx.array:
     """Interpolate array with correct shape handling."""
     ndim = input.ndim
@@ -24,7 +24,7 @@ def interpolate(
 
     if size is not None and scale_factor is not None:
         raise ValueError("Only one of size or scale_factor should be defined")
-    elif size is None and scale_factor is None:
+    if size is None and scale_factor is None:
         raise ValueError("One of size or scale_factor must be defined")
 
     if size is not None and not isinstance(size, (list, tuple)):
@@ -36,22 +36,20 @@ def interpolate(
         assert scale_factor is not None
         size = []
         for i in range(spatial_dims):
-            curr_size = max(1, int(mx.ceil(input.shape[i + 2] * scale_factor[i])))  # ty: ignore
+            scaled_size = input.shape[i + 2] * scale_factor[i]
+            curr_size = max(1, math.ceil(scaled_size))
             size.append(curr_size)
 
     if spatial_dims == 1:
         return interpolate1d(input, size[0], mode, align_corners)
-    else:
-        raise ValueError(
-            f"Only 1D interpolation currently supported, got {spatial_dims}D"
-        )
+    raise ValueError(f"Only 1D interpolation currently supported, got {spatial_dims}D")
 
 
 def interpolate1d(
     input: mx.array,
     size: int,
     mode: str = "linear",
-    align_corners: Optional[bool] = None,
+    align_corners: bool | None = None,
 ) -> mx.array:
     """1D interpolation implementation."""
     batch_size, channels, in_width = input.shape

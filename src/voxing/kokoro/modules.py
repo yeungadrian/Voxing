@@ -14,7 +14,13 @@ from voxing.kokoro.istftnet import AdainResBlk1d, ConvWeighted
 
 
 class LinearNorm(nn.Module):
-    def __init__(self, in_dim: int, out_dim: int, bias: bool = True, w_init_gain: str = "linear"):
+    def __init__(
+        self,
+        in_dim: int,
+        out_dim: int,
+        bias: bool = True,
+        w_init_gain: str = "linear",
+    ):
         super().__init__()
         self.linear_layer = nn.Linear(in_dim, out_dim, bias=bias)
 
@@ -23,8 +29,17 @@ class LinearNorm(nn.Module):
 
 
 class TextEncoder(nn.Module):
-    def __init__(self, channels: int, kernel_size: int, depth: int, n_symbols: int, actv: nn.Module = nn.LeakyReLU(0.2)):
+    def __init__(
+        self,
+        channels: int,
+        kernel_size: int,
+        depth: int,
+        n_symbols: int,
+        actv: nn.Module | None = None,
+    ):
         super().__init__()
+        if actv is None:
+            actv = nn.LeakyReLU(0.2)
         self.embedding = nn.Embedding(n_symbols, channels)
         padding = (kernel_size - 1) // 2
         self.cnn: list[list[nn.Module]] = []
@@ -66,8 +81,7 @@ class TextEncoder(nn.Module):
         x = x.swapaxes(2, 1)
         x_pad = mx.zeros([x.shape[0], x.shape[1], m.shape[-1]])
         x_pad[:, :, : x.shape[-1]] = x
-        x = mx.where(m, 0.0, x_pad)
-        return x
+        return mx.where(m, 0.0, x_pad)
 
 
 class AdaLayerNorm(nn.Module):
@@ -250,7 +264,14 @@ class LSTM(nn.Module):
 
 
 class ProsodyPredictor(nn.Module):
-    def __init__(self, style_dim: int, d_hid: int, nlayers: int, max_dur: int = 50, dropout: float = 0.1):
+    def __init__(
+        self,
+        style_dim: int,
+        d_hid: int,
+        nlayers: int,
+        max_dur: int = 50,
+        dropout: float = 0.1,
+    ):
         super().__init__()
         self.text_encoder = DurationEncoder(
             sty_dim=style_dim, d_model=d_hid, nlayers=nlayers, dropout=dropout
@@ -338,7 +359,13 @@ class DurationEncoder(nn.Module):
         self.d_model = d_model
         self.sty_dim = sty_dim
 
-    def __call__(self, x: mx.array, style: mx.array, text_lengths: mx.array, m: mx.array) -> mx.array:
+    def __call__(
+        self,
+        x: mx.array,
+        style: mx.array,
+        text_lengths: mx.array,
+        m: mx.array,
+    ) -> mx.array:
         x = x.transpose(2, 0, 1)
         s = mx.broadcast_to(style, (x.shape[0], x.shape[1], style.shape[-1]))
         x = mx.concatenate([x, s], axis=-1)
@@ -437,7 +464,11 @@ class AlbertSelfAttention(nn.Module):
         x = x.reshape(new_x_shape)
         return x.transpose(0, 2, 1, 3)
 
-    def __call__(self, hidden_states: mx.array, attention_mask: mx.array | None = None) -> mx.array:
+    def __call__(
+        self,
+        hidden_states: mx.array,
+        attention_mask: mx.array | None = None,
+    ) -> mx.array:
         mixed_query_layer = self.query(hidden_states)
         mixed_key_layer = self.key(hidden_states)
         mixed_value_layer = self.value(hidden_states)
@@ -474,7 +505,11 @@ class AlbertLayer(nn.Module):
         self.ffn_output = nn.Linear(config.intermediate_size, config.hidden_size)
         self.activation = nn.GELU()
 
-    def __call__(self, hidden_states: mx.array, attention_mask: mx.array | None = None) -> mx.array:
+    def __call__(
+        self,
+        hidden_states: mx.array,
+        attention_mask: mx.array | None = None,
+    ) -> mx.array:
         attention_output = self.attention(hidden_states, attention_mask)
         ffn_output = self.ffn(attention_output)
         ffn_output = self.activation(ffn_output)
@@ -489,7 +524,11 @@ class AlbertLayerGroup(nn.Module):
             AlbertLayer(config) for _ in range(config.inner_group_num)
         ]
 
-    def __call__(self, hidden_states: mx.array, attention_mask: mx.array | None = None) -> mx.array:
+    def __call__(
+        self,
+        hidden_states: mx.array,
+        attention_mask: mx.array | None = None,
+    ) -> mx.array:
         for layer_module in self.albert_layers:
             hidden_states = layer_module(hidden_states, attention_mask)
         return hidden_states
@@ -506,7 +545,11 @@ class AlbertEncoder(nn.Module):
             AlbertLayerGroup(config) for _ in range(config.num_hidden_groups)
         ]
 
-    def __call__(self, hidden_states: mx.array, attention_mask: mx.array | None = None) -> mx.array:
+    def __call__(
+        self,
+        hidden_states: mx.array,
+        attention_mask: mx.array | None = None,
+    ) -> mx.array:
         hidden_states = self.embedding_hidden_mapping_in(hidden_states)
         for i in range(self.config.num_hidden_layers):
             group_idx = int(

@@ -5,10 +5,10 @@ Vendored from mlx-audio (https://github.com/Blaizzy/mlx-audio).
 
 import logging
 import re
+from collections.abc import Generator
 from dataclasses import dataclass
-from numbers import Number
 from pathlib import Path
-from typing import Generator, Optional, Union
+from typing import Protocol, cast
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -32,17 +32,17 @@ ALIASES = {
     "zh": "z",
 }
 
-LANG_CODES = dict(
-    a="American English",
-    b="British English",
-    e="es",
-    f="fr-fr",
-    h="hi",
-    i="it",
-    p="pt-br",
-    j="Japanese",
-    z="Mandarin Chinese",
-)
+LANG_CODES = {
+    "a": "American English",
+    "b": "British English",
+    "e": "es",
+    "f": "fr-fr",
+    "h": "hi",
+    "i": "it",
+    "p": "pt-br",
+    "j": "Japanese",
+    "z": "Mandarin Chinese",
+}
 
 
 class KokoroPipeline:
@@ -97,7 +97,10 @@ class KokoroPipeline:
         else:
             language = LANG_CODES[lang_code]
             logging.warning(
-                f"Using EspeakG2P(language='{language}'). Chunking logic not yet implemented, so long texts may be truncated unless you split them with '\\n'."
+                "Using EspeakG2P(language='%s'). Chunking logic not yet "
+                "implemented, so long texts may be truncated unless you split "
+                "them with '\\n'.",
+                language,
             )
             self.g2p = espeak.EspeakG2P(language=language)
 
@@ -156,7 +159,7 @@ class KokoroPipeline:
     @classmethod
     def tokens_to_ps(cls, tokens: list[en.MToken]) -> str:
         return "".join(
-            t.phonemes + (" " if t.whitespace else "") for t in tokens
+            (t.phonemes or "") + (" " if t.whitespace else "") for t in tokens
         ).strip()
 
     @classmethod
@@ -164,8 +167,8 @@ class KokoroPipeline:
         cls,
         tokens: list[en.MToken],
         next_count: int,
-        waterfall: list[str] = ["!.?…", ":;", ",—"],
-        bumps: list[str] = [")", "\u201d"],
+        waterfall: tuple[str, ...] = ("!.?…", ":;", ",—"),
+        bumps: tuple[str, ...] = (")", "\u201d"),
     ) -> int:
         for w in waterfall:
             z = next(
@@ -191,7 +194,7 @@ class KokoroPipeline:
 
     def en_tokenize(
         self, tokens: list[en.MToken]
-    ) -> Generator[tuple[str, str, list[en.MToken]], None, None]:
+    ) -> Generator[tuple[str, str, list[en.MToken]]]:
         """Chunk English tokens into segments of <= 510 phonemes."""
         tks: list[en.MToken] = []
         pcount = 0
@@ -222,21 +225,23 @@ class KokoroPipeline:
         ps: str,
         pack: mx.array,
         speed: float = 1,
-    ) -> object:
-        return model(ps, pack[len(ps) - 1], speed, return_output=True)
+    ) -> "_ModelOutput":
+        return cast(
+            _ModelOutput, model(ps, pack[len(ps) - 1], speed, return_output=True)
+        )
 
     def __call__(
         self,
-        text: Union[str, list[str]],
-        voice: Optional[str] = None,
+        text: str | list[str],
+        voice: str | None = None,
         speed: float = 1,
-        split_pattern: Optional[str] = r"\n+",
-    ) -> Generator["KokoroPipeline.Result", None, None]:
+        split_pattern: str | None = r"\n+",
+    ) -> Generator["KokoroPipeline.Result"]:
         if voice is None:
             raise ValueError(
                 'Specify a voice: pipeline(text="Hello world!", voice="af_heart")'
             )
-        pack = self.load_voice(voice) if self.model else None
+        pack = self.load_voice(voice)
         if isinstance(text, str):
             text = re.split(split_pattern, text.strip()) if split_pattern else [text]
 
@@ -245,8 +250,14 @@ class KokoroPipeline:
                 continue
 
             if self.lang_code in "ab":
-                _, tokens = self.g2p(graphemes)
-                for gs, ps, tks in self.en_tokenize(tokens):  # ty: ignore
+                g2p_result = self.g2p(graphemes)
+                tokens = cast(
+                    list[en.MToken] | None,
+                    g2p_result[1] if isinstance(g2p_result, tuple) else None,
+                )
+                if tokens is None:
+                    continue
+                for gs, ps, tks in self.en_tokenize(tokens):
                     if not ps:
                         continue
                     elif len(ps) > 510:
@@ -254,11 +265,7 @@ class KokoroPipeline:
                             f"Unexpected len(ps) == {len(ps)} > 510, truncating"
                         )
                         ps = ps[:510]
-                    output = (
-                        KokoroPipeline.infer(self.model, ps, pack, speed)  # ty: ignore
-                        if self.model
-                        else None
-                    )
+                    output = KokoroPipeline.infer(self.model, ps, pack, speed)
                     yield self.Result(
                         graphemes=gs,
                         phonemes=ps,
@@ -299,11 +306,7 @@ class KokoroPipeline:
                     elif len(ps) > 510:
                         logging.warning(f"Truncating len(ps) == {len(ps)} > 510")
                         ps = ps[:510]
-                    output = (
-                        KokoroPipeline.infer(self.model, ps, pack, speed)  # ty: ignore
-                        if self.model
-                        else None
-                    )
+                    output = KokoroPipeline.infer(self.model, ps, pack, speed)
                     yield self.Result(
                         graphemes=chunk,
                         phonemes=ps,
@@ -315,17 +318,17 @@ class KokoroPipeline:
     class Result:
         graphemes: str
         phonemes: str
-        tokens: Optional[list[en.MToken]] = None
-        output: object = None
-        text_index: Optional[int] = None
+        tokens: list[en.MToken] | None = None
+        output: "_ModelOutput | None" = None
+        text_index: int | None = None
 
         @property
-        def audio(self) -> Optional[mx.array]:
-            return None if self.output is None else self.output.audio  # ty: ignore
+        def audio(self) -> mx.array | None:
+            return None if self.output is None else self.output.audio
 
         @property
-        def pred_dur(self) -> Optional[mx.array]:
-            return None if self.output is None else self.output.pred_dur  # ty: ignore
+        def pred_dur(self) -> mx.array | None:
+            return None if self.output is None else self.output.pred_dur
 
         def __iter__(self):
             yield self.graphemes
@@ -337,3 +340,8 @@ class KokoroPipeline:
 
         def __len__(self) -> int:
             return 3
+
+
+class _ModelOutput(Protocol):
+    audio: mx.array
+    pred_dur: mx.array | None

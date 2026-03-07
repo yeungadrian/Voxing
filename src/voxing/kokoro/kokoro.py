@@ -3,17 +3,23 @@
 Vendored from mlx-audio (https://github.com/Blaizzy/mlx-audio).
 """
 
+from __future__ import annotations
+
 import time
 from dataclasses import dataclass
-from numbers import Number
-from typing import Optional, Union
+from typing import cast
 
 import mlx.core as mx
 import mlx.nn as nn
 
 from voxing.kokoro._base import BaseModelArgs, GenerationResult, check_array_shape
 from voxing.kokoro.istftnet import Decoder
-from voxing.kokoro.modules import AlbertModelArgs, CustomAlbert, ProsodyPredictor, TextEncoder
+from voxing.kokoro.modules import (
+    AlbertModelArgs,
+    CustomAlbert,
+    ProsodyPredictor,
+    TextEncoder,
+)
 from voxing.kokoro.pipeline import KokoroPipeline
 
 
@@ -61,7 +67,7 @@ class ModelConfig(BaseModelArgs):
 class Model(nn.Module):
     """Kokoro TTS model."""
 
-    REPO_ID = "prince-canuma/Kokoro-82M"
+    REPO_ID = "mlx-community/Kokoro-82M-bf16"
 
     def __init__(self, config: ModelConfig, repo_id: str | None = None):
         super().__init__()
@@ -98,19 +104,19 @@ class Model(nn.Module):
     @dataclass
     class Output:
         audio: mx.array
-        pred_dur: Optional[mx.array] = None
+        pred_dur: mx.array | None = None
 
     def __call__(
         self,
         phonemes: str,
         ref_s: mx.array,
-        speed: Number = 1,
+        speed: float = 1.0,
         return_output: bool = False,
-        decoder: object = None,
-    ) -> Union["Model.Output", mx.array]:
-        input_ids = list(
-            filter(lambda i: i is not None, map(lambda p: self.vocab.get(p), phonemes))
-        )
+        decoder: nn.Module | None = None,
+    ) -> Model.Output | mx.array:
+        input_ids = [
+            token_id for p in phonemes if (token_id := self.vocab.get(p)) is not None
+        ]
         assert len(input_ids) + 2 <= self.context_length, (
             len(input_ids) + 2,
             self.context_length,
@@ -141,7 +147,7 @@ class Model(nn.Module):
         t_en = self.text_encoder(input_ids, input_lengths, text_mask)
         asr = t_en @ pred_aln_trg
 
-        decoder_fn = mx.compile(decoder) if decoder is not None else self.decoder  # ty: ignore
+        decoder_fn = mx.compile(decoder) if decoder is not None else self.decoder
         audio = decoder_fn(asr, F0_pred, N_pred, ref_s[:, :128])[0]
 
         mx.eval(audio, pred_dur)
@@ -151,12 +157,10 @@ class Model(nn.Module):
     def sanitize(self, weights: dict[str, mx.array]) -> dict[str, mx.array]:
         sanitized_weights: dict[str, mx.array] = {}
         for key, state_dict in weights.items():
-
             if key.startswith("bert"):
                 if "position_ids" in key:
                     continue
-                else:
-                    sanitized_weights[key] = state_dict
+                sanitized_weights[key] = state_dict
 
             if key.startswith("bert_encoder"):
                 sanitized_weights[key] = state_dict
@@ -191,9 +195,7 @@ class Model(nn.Module):
                     sanitized_weights[key] = state_dict
 
             if key.startswith("predictor"):
-                if "F0_proj.weight" in key:
-                    sanitized_weights[key] = state_dict.transpose(0, 2, 1)
-                elif "N_proj.weight" in key:
+                if "F0_proj.weight" in key or "N_proj.weight" in key:
                     sanitized_weights[key] = state_dict.transpose(0, 2, 1)
                 elif "weight_v" in key:
                     if check_array_shape(state_dict):
@@ -250,17 +252,22 @@ class Model(nn.Module):
 
         start_time = time.time()
 
-        for segment_idx, (graphemes, phonemes, audio) in enumerate(
+        for segment_idx, result in enumerate(
             pipeline(text, voice=voice, speed=speed, split_pattern=split_pattern)
         ):
             now = time.time()
             segment_time = now - start_time
             start_time = now
 
-            samples = audio.shape[0] if audio is not None else 0
-            assert samples > 0, "No audio generated"
+            phonemes = result.phonemes
+            audio = result.audio
+            if audio is None:
+                raise ValueError("No audio generated")
+            audio = cast(mx.array, audio)
 
-            token_count = len(phonemes) if phonemes is not None else 0
+            samples = audio.shape[0]
+
+            token_count = len(phonemes)
             sample_rate = self.config.sample_rate
             audio_duration_seconds = samples / sample_rate * audio.shape[1]
 
@@ -274,7 +281,10 @@ class Model(nn.Module):
             duration_secs = int(audio_duration_seconds % 60)
             duration_ms = int((audio_duration_seconds % 1) * 1000)
             duration_hours = int(audio_duration_seconds // 3600)
-            duration_str = f"{duration_hours:02d}:{duration_mins:02d}:{duration_secs:02d}.{duration_ms:03d}"
+            duration_str = (
+                f"{duration_hours:02d}:{duration_mins:02d}:"
+                f"{duration_secs:02d}.{duration_ms:03d}"
+            )
 
             yield GenerationResult(
                 audio=audio[0],

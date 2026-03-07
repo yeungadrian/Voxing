@@ -4,12 +4,12 @@ Vendored from mlx-audio (https://github.com/Blaizzy/mlx-audio).
 """
 
 import math
-from functools import lru_cache
+from functools import cache
 
 import mlx.core as mx
 
 
-@lru_cache(maxsize=None)
+@cache
 def hanning(size: int, periodic: bool = False) -> mx.array:
     """Hanning (Hann) window."""
     denom = size if periodic else size - 1
@@ -54,12 +54,11 @@ def stft(
     def _pad(x: mx.array, padding: int, pad_mode: str = "reflect") -> mx.array:
         if pad_mode == "constant":
             return mx.pad(x, [(padding, padding)])
-        elif pad_mode == "reflect":
+        if pad_mode == "reflect":
             prefix = x[1 : padding + 1][::-1]
             suffix = x[-(padding + 1) : -1][::-1]
             return mx.concatenate([prefix, x, suffix])
-        else:
-            raise ValueError(f"Invalid pad_mode {pad_mode}")
+        raise ValueError(f"Invalid pad_mode {pad_mode}")
 
     if center:
         x = _pad(x, n_fft // 2, pad_mode)
