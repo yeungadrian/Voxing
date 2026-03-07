@@ -1161,7 +1161,6 @@ dependencies = [
     { name = "rich" },
     { name = "sounddevice" },
     { name = "textual" },
-    { name = "transformers" },
 ]
 
 [package.dev-dependencies]
@@ -1183,7 +1182,6 @@ requires-dist = [
     { name = "rich", specifier = ">=14.3.1" },
     { name = "sounddevice", specifier = ">=0.5.3" },
     { name = "textual", specifier = ">=7.5.0" },
-    { name = "transformers", specifier = ">=4.50.0" },
 ]
 
 [package.metadata.requires-dev]

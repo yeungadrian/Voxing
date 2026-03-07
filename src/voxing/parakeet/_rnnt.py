@@ -60,8 +60,8 @@ class LSTM(nn.Module):
             x = mx.transpose(x, (1, 0, 2))
 
         if h_c is None:
-            h: list[mx.array | None] = [None] * self.num_layers
-            c: list[mx.array | None] = [None] * self.num_layers
+            h = [None] * self.num_layers
+            c = [None] * self.num_layers
         else:
             h, c = list(h_c[0]), list(h_c[1])
 

@@ -119,7 +119,6 @@ class RealtimeTranscriber:
             if self._stop_event.is_set():
                 continue
 
-            # Accumulate until minimum audio available
             if buffer_samples < self._min_audio_samples:
                 continue
 
@@ -132,7 +131,6 @@ class RealtimeTranscriber:
             chunks_since_decode = 0
 
             if self._is_utterance_complete(audio):
-                # Confirm: finalize text, reset buffer
                 # TODO: scan backward for best silence window to avoid mid-word splits
                 text = _transcribe(self._model, audio)
                 if text:
@@ -141,7 +139,6 @@ class RealtimeTranscriber:
                 buffer_samples = 0
                 draft = ""
             else:
-                # Draft: keep buffer, update working text
                 draft = _transcribe(self._model, audio)
 
             yield f"{confirmed} {draft}".strip()

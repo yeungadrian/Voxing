@@ -51,6 +51,11 @@ class VizWidget(Widget):
         """Forward an audio chunk to the underlying visualizer."""
         self._viz.push(chunk)
 
+    @property
+    def viz(self) -> Visualizer:
+        """Expose wrapped visualizer instance."""
+        return self._viz
+
     def _color_style(self, color: str) -> Style:
         """Get or create a cached Style for a hex color."""
         style = self._color_cache.get(color)
@@ -86,7 +91,6 @@ class VizWidget(Widget):
 
 SLASH_COMMANDS: dict[str, str] = {
     "/transcribe": "Start voice transcription",
-    "/radial": "Radial spectrum visualizer",
     "/settings": "Open settings panel",
     "/clear": "Clear chat history",
     "/help": "Show available commands",

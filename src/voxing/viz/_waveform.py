@@ -64,7 +64,7 @@ def peaks(buf: np.ndarray, num_bars: int) -> np.ndarray:
 def bar_columns(width: int) -> tuple[list[int | None], int]:
     """Map each column to a bar index or None for gaps; return mapping and num_bars."""
     num_bars = max(1, (width + BAR_GAP) // (1 + BAR_GAP))
-    mapping: list[int | None] = [None] * width
+    mapping: list[int | None] = [None] * width  # type: ignore [invalid-assignment]
     for b in range(num_bars):
         col = b * (1 + BAR_GAP)
         if 0 <= col < width:

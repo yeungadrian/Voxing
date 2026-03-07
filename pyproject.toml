@@ -23,7 +23,6 @@ dependencies = [
     "rich>=14.3.1",
     "sounddevice>=0.5.3",
     "textual>=7.5.0",
-    "transformers>=4.50.0",
 ]
 
 [project.urls]
