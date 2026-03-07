@@ -14,7 +14,9 @@ classifiers = [
     "Operating System :: MacOS",
 ]
 dependencies = [
+    "en-core-web-sm",
     "huggingface-hub>=1.4.1",
+    "misaki[en]>=0.9.4",
     "mlx>=0.30.6",
     "mlx-lm>=0.30.7",
     "numpy>=2.4.2",
@@ -64,3 +66,6 @@ select = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }

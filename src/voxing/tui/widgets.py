@@ -104,8 +104,7 @@ class WelcomeMessage(Static):
     DEFAULT_CSS = """
     WelcomeMessage {
         height: auto;
-        padding: 2 2;
-        color: $text-muted;
+        padding: 1 2;
         content-align: center middle;
         text-align: center;
         width: 100%;
@@ -113,7 +112,9 @@ class WelcomeMessage(Static):
     """
 
     def __init__(self) -> None:
-        super().__init__("[bold $primary]voxing[/]\n\n[dim]local voice assistant[/]")
+        super().__init__(
+            "[bold $text-primary]voxing[/]\n\n[dim $text-muted]local voice assistant[/]"
+        )
 
 
 class MemoryDisplay(Static):
