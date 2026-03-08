@@ -14,17 +14,19 @@ classifiers = [
     "Operating System :: MacOS",
 ]
 dependencies = [
-    "en-core-web-sm",
     "huggingface-hub>=1.4.1",
-    "misaki[en]>=0.9.4",
     "mlx>=0.30.6",
     "mlx-lm>=0.30.7",
     "numpy>=2.4.2",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
     "rich>=14.3.1",
+    "scipy>=1.17.1",
     "sounddevice>=0.5.3",
+    "soundfile>=0.13.1",
     "textual>=7.5.0",
+    "tqdm>=4.67.1",
+    "transformers>=4.57.1",
 ]
 
 [project.urls]

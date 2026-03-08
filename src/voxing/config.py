@@ -24,3 +24,16 @@ class Settings(BaseSettings):
     llm_top_k: int = 50
     llm_top_p: float = 0.1
     llm_repetition_penalty: float = 1.05
+
+    tts_model_id: str = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
+    tts_voice: str = "Sohee"
+    tts_speed: float = 1.0
+    tts_language: str = "english"
+    tts_instruct: str = "Neutral voice responding in a consistent tone and expression"
+    tts_split_pattern: str = "\n"
+    tts_temperature: float = 0.9
+    tts_stream: bool = True
+    tts_streaming_interval: float = 0.32
+    tts_top_k: int = 50
+    tts_top_p: float = 1.0
+    tts_repetition_penalty: float = 1.05

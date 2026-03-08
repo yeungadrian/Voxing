@@ -17,15 +17,6 @@ class BaseModelArgs:
         )
 
 
-def check_array_shape(arr: mx.array) -> bool:
-    """Check if a 3D array has out_channels as the largest dim with equal kH/kW."""
-    shape = arr.shape
-    if len(shape) != 3:
-        return False
-    out_channels, kH, kW = shape
-    return (out_channels >= kH) and (out_channels >= kW) and (kH == kW)
-
-
 @dataclass
 class GenerationResult:
     audio: mx.array
@@ -39,3 +30,19 @@ class GenerationResult:
     audio_samples: dict
     processing_time_seconds: float
     peak_memory_usage: float
+    is_streaming_chunk: bool = False
+    is_final_chunk: bool = False
+
+
+@dataclass
+class BatchGenerationResult:
+    audio: mx.array
+    sequence_idx: int
+    samples: int
+    sample_rate: int
+    token_count: int
+    audio_duration: str
+    processing_time_seconds: float
+    peak_memory_usage: float
+    is_streaming_chunk: bool = False
+    is_final_chunk: bool = False
