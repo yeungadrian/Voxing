@@ -101,9 +101,7 @@ class RealtimeTranscriber:
             self._thread.join(timeout=2.0)
 
     def __iter__(self) -> Iterator[str]:
-        # TODO: Separate draft vs confirmed so we can display difference to user.
-        confirmed = ""
-        draft = ""
+        text = ""
         buffer: list[np.ndarray] = []
         buffer_samples = 0
         chunks_since_decode = 0
@@ -121,14 +119,12 @@ class RealtimeTranscriber:
             buffer_samples += len(chunk)
             chunks_since_decode += 1
 
-            # Stop is set: drain remaining queued chunks then flush once at the end
             if self._stop_event.is_set():
                 continue
 
             if buffer_samples < self._min_audio_samples:
                 continue
 
-            # Decode when interval elapsed or buffer full
             buffer_full = buffer_samples >= self._max_buffer_samples
             if not buffer_full and chunks_since_decode < self._draft_interval_chunks:
                 continue
@@ -137,24 +133,23 @@ class RealtimeTranscriber:
             chunks_since_decode = 0
 
             if self._is_utterance_complete(audio):
-                # TODO: scan backward for best silence window to avoid mid-word splits
-                text = _transcribe(self._model, audio)
-                if text:
-                    confirmed = f"{confirmed} {text}".strip()
+                segment = _transcribe(self._model, audio)
+                if segment:
+                    text = f"{text} {segment}".strip()
                 buffer = []
                 buffer_samples = 0
-                draft = ""
             else:
                 draft = _transcribe(self._model, audio)
+                yield f"{text} {draft}".strip()
+                continue
 
-            yield f"{confirmed} {draft}".strip()
+            yield text
 
-        # Flush remaining audio on stop
         if buffer:
             audio = np.concatenate(buffer)
             if len(audio) >= self._min_audio_samples:
-                text = _transcribe(self._model, audio)
-                if text:
-                    confirmed = f"{confirmed} {text}".strip()
-        if confirmed:
-            yield confirmed
+                segment = _transcribe(self._model, audio)
+                if segment:
+                    text = f"{text} {segment}".strip()
+        if text:
+            yield text

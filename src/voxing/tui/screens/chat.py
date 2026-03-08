@@ -16,9 +16,12 @@ from voxing.stt import RealtimeTranscriber
 from voxing.tui.messages import (
     AudioChunk,
     GenerationComplete,
+    Status,
+    StatusChanged,
     TokenReceived,
     TranscriptionFinal,
     TranscriptionUpdate,
+    status_markup,
 )
 from voxing.tui.screens.settings import SettingsResult, SettingsScreen
 from voxing.tui.widgets import (
@@ -31,8 +34,6 @@ from voxing.tui.widgets import (
     TranscriptionDisplay,
     WelcomeMessage,
 )
-
-_IDLE_STATUS = "[dim]type / for commands[/]"
 
 
 class ChatScreen(Screen[None]):
@@ -48,7 +49,6 @@ class ChatScreen(Screen[None]):
         self._active_transcriber: RealtimeTranscriber | None = None
         self._transcriber_lock = threading.Lock()
         self._transcription_display: TranscriptionDisplay | None = None
-        self._transcribe_cancel = threading.Event()
 
     @property
     def footer_bar(self) -> FooterBar:
@@ -74,11 +74,15 @@ class ChatScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self.message_list.mount(WelcomeMessage())
-        self.footer_bar.set_status(_IDLE_STATUS)
+        self._set_status(Status.IDLE)
         self.chat_input.focus()
 
     def on_screen_resume(self) -> None:
         self.chat_input.focus()
+
+    def _set_status(self, status: Status, error: str | None = None) -> None:
+        """Update the footer status from the main thread."""
+        self.footer_bar.set_status(status_markup(status, error))
 
     def _remove_welcome(self) -> None:
         """Remove the welcome message if present."""
@@ -99,7 +103,7 @@ class ChatScreen(Screen[None]):
         if handler is not None:
             handler(self)
         elif text.startswith("/"):
-            self.footer_bar.set_status(f"[$error]Unknown command: {text}[/]")
+            self._set_status(Status.ERROR, f"Unknown command: {text}")
         else:
             self._send_message(text)
 
@@ -109,7 +113,7 @@ class ChatScreen(Screen[None]):
         self._messages = [
             {"role": "system", "content": self._settings.llm_system_prompt}
         ]
-        self.footer_bar.set_status("[$success]Chat cleared[/]")
+        self._set_status(Status.CHAT_CLEARED)
 
     def _handle_settings(self) -> None:
         self.app.push_screen(
@@ -127,13 +131,12 @@ class ChatScreen(Screen[None]):
             "role": "system",
             "content": self._settings.llm_system_prompt,
         }
-        self.footer_bar.set_status("[$success]Settings saved[/]")
+        self._set_status(Status.SETTINGS_SAVED)
 
     def _handle_transcribe(self) -> None:
         self._remove_welcome()
-        self._transcribe_cancel.clear()
         self.chat_input.disabled = True
-        self.footer_bar.set_status("[$warning]Loading STT model...[/]")
+        self._set_status(Status.LOADING_STT)
         self._transcription_display = TranscriptionDisplay(
             audio_visual=self._settings.audio_visual,
             sample_rate=self._settings.sample_rate,
@@ -170,7 +173,6 @@ class ChatScreen(Screen[None]):
 
     def _stop_transcriber(self) -> None:
         """Signal active transcriber to stop."""
-        self._transcribe_cancel.set()
         with self._transcriber_lock:
             transcriber = self._active_transcriber
         if transcriber is not None:
@@ -184,7 +186,7 @@ class ChatScreen(Screen[None]):
         self.shutdown_workers()
 
     def on_key(self, event: Key) -> None:
-        if event.key == "escape" and not self._transcribe_cancel.is_set():
+        if event.key == "escape":
             self._stop_transcriber()
 
     # --- Workers ---
@@ -197,13 +199,9 @@ class ChatScreen(Screen[None]):
         agent = None
         error: str | None = None
         try:
-            self.app.call_from_thread(
-                self.footer_bar.set_status, "[$warning]Loading LLM...[/]"
-            )
+            self.post_message(StatusChanged(Status.LOADING_LLM))
             model, tokenizer = load_llm(self._settings.llm_model_id)
-            self.app.call_from_thread(
-                self.footer_bar.set_status, "[$primary]Generating...[/]"
-            )
+            self.post_message(StatusChanged(Status.GENERATING))
 
             agent = LocalAgent(
                 model,
@@ -234,17 +232,9 @@ class ChatScreen(Screen[None]):
         last_text = ""
         error: str | None = None
         try:
-            self.app.call_from_thread(
-                self.footer_bar.set_status, "[$warning]Loading STT model...[/]"
-            )
+            self.post_message(StatusChanged(Status.LOADING_STT))
             model = load_stt(self._settings.model_id)
-            self.app.call_from_thread(
-                self.footer_bar.set_status,
-                "[dim]esc to stop recording[/]",
-            )
-
-            if self._transcribe_cancel.is_set():
-                return
+            self.post_message(StatusChanged(Status.RECORDING))
 
             transcriber = RealtimeTranscriber(
                 model,
@@ -270,6 +260,9 @@ class ChatScreen(Screen[None]):
 
     # --- Message handlers ---
 
+    def on_status_changed(self, message: StatusChanged) -> None:
+        self._set_status(message.status, message.error)
+
     def _ensure_assistant_msg(self) -> AssistantMessage:
         """Lazily create an assistant message widget."""
         if self._current_assistant_msg is None:
@@ -290,9 +283,9 @@ class ChatScreen(Screen[None]):
         self.chat_input.disabled = False
         self.chat_input.focus()
         if message.error:
-            self.footer_bar.set_status(f"[$error]Generation error: {message.error}[/]")
+            self._set_status(Status.ERROR, f"Generation error: {message.error}")
         else:
-            self.footer_bar.set_status(_IDLE_STATUS)
+            self._set_status(Status.IDLE)
 
     def on_transcription_update(self, message: TranscriptionUpdate) -> None:
         if self._transcription_display is not None:
@@ -313,8 +306,6 @@ class ChatScreen(Screen[None]):
         self.chat_input.disabled = False
         self.chat_input.focus()
         if message.error:
-            self.footer_bar.set_status(
-                f"[$error]Transcription error: {message.error}[/]"
-            )
+            self._set_status(Status.ERROR, f"Transcription error: {message.error}")
         else:
-            self.footer_bar.set_status("[dim]enter to send  ·  type / for commands[/]")
+            self._set_status(Status.TRANSCRIPTION_READY)
