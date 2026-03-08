@@ -2,7 +2,7 @@ import io
 from collections.abc import Iterator
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
-from typing import cast
+from typing import TypedDict, cast
 
 import mlx.nn as nn
 import mlx_lm
@@ -12,7 +12,10 @@ from mlx_lm.tokenizer_utils import TokenizerWrapper
 from voxing._download import _resolve_model_path
 from voxing.config import Settings
 
-type Message = dict[str, object]
+
+class Message(TypedDict):
+    role: str
+    content: str
 
 
 @dataclass

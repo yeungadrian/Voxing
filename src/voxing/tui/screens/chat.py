@@ -1,4 +1,6 @@
 import threading
+from collections.abc import Callable
+from typing import ClassVar
 
 import mlx.core as mx
 from textual import work
@@ -93,17 +95,9 @@ class ChatScreen(Screen[None]):
         self.command_hints.display = False
         self.footer_bar.display = True
 
-        if text == "/clear":
-            self._handle_clear()
-        elif text == "/settings":
-            self._handle_settings()
-        elif text == "/transcribe":
-            self._handle_transcribe()
-        elif text == "/help":
-            self._handle_help()
-        elif text == "/exit":
-            self.shutdown_workers()
-            self.app.exit()
+        handler = self._COMMANDS.get(text)
+        if handler is not None:
+            handler(self)
         elif text.startswith("/"):
             self.footer_bar.set_status(f"[$error]Unknown command: {text}[/]")
         else:
@@ -154,6 +148,19 @@ class ChatScreen(Screen[None]):
             "[dim]Commands: " + ", ".join(SLASH_COMMANDS) + "[/]"
         )
 
+    def _handle_exit(self) -> None:
+        """Shut down workers and exit the application."""
+        self.shutdown_workers()
+        self.app.exit()
+
+    _COMMANDS: ClassVar[dict[str, Callable[["ChatScreen"], None]]] = {
+        "/clear": _handle_clear,
+        "/settings": _handle_settings,
+        "/transcribe": _handle_transcribe,
+        "/help": _handle_help,
+        "/exit": _handle_exit,
+    }
+
     def _send_message(self, text: str) -> None:
         self._remove_welcome()
         self.chat_input.disabled = True
@@ -161,27 +168,24 @@ class ChatScreen(Screen[None]):
         self._current_assistant_msg = None
         self._generate(text)
 
-    def shutdown_workers(self) -> None:
-        """Signal all background workers to stop."""
+    def _stop_transcriber(self) -> None:
+        """Signal active transcriber to stop."""
         self._transcribe_cancel.set()
         with self._transcriber_lock:
             transcriber = self._active_transcriber
         if transcriber is not None:
             transcriber.stop()
 
+    def shutdown_workers(self) -> None:
+        """Signal all background workers to stop."""
+        self._stop_transcriber()
+
     def on_unmount(self) -> None:
         self.shutdown_workers()
 
     def on_key(self, event: Key) -> None:
         if event.key == "escape" and not self._transcribe_cancel.is_set():
-            self._transcribe_cancel.set()
-            with self._transcriber_lock:
-                transcriber = self._active_transcriber
-            if transcriber is not None:
-                transcriber.stop()
-            # If _active_transcriber is None, ESC arrived before the worker assigned
-            # it (between model load and transcriber construction). _transcribe_cancel
-            # is already set so the worker will abort at its early-exit check.
+            self._stop_transcriber()
 
     # --- Workers ---
 

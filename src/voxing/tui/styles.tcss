@@ -9,14 +9,13 @@ SettingsScreen {
     border-bottom: solid $panel;
     padding: 0 2;
     background: $background;
+    background-tint: transparent;
 }
 
 #search-bar:focus {
     border: none;
     border-top: solid $panel;
     border-bottom: solid $panel;
-    background: $background;
-    background-tint: transparent;
 }
 
 SettingsList {

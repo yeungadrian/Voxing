@@ -205,7 +205,6 @@ class TranscriptionDisplay(Widget):
 
     def update_text(self, text: str) -> None:
         """Update the live transcription text and switch to active colour."""
-        self._text = text
         text_widget = self.query_one("#transcription-text", Static)
         text_widget.update(text)
         text_widget.add_class("active")
@@ -356,14 +355,13 @@ class ChatInput(TextArea):
         border-bottom: solid $panel;
         padding: 0 2;
         background: $background;
+        background-tint: transparent;
         scrollbar-size: 0 0;
     }
     ChatInput:focus {
         border: none;
         border-top: solid $panel;
         border-bottom: solid $panel;
-        background: $background;
-        background-tint: transparent;
     }
     ChatInput .text-area--cursor-line {
         background: transparent;
@@ -394,6 +392,10 @@ class ChatInput(TextArea):
                     self.suggestion = cmd[len(text) :]
                     return
         self.suggestion = ""
+
+    def _on_text_area_changed(self) -> None:
+        """Update slash command suggestion when text changes."""
+        self.update_suggestion()
 
     async def _on_key(self, event: Key) -> None:
         """Intercept Enter to submit and Tab to accept suggestion or no-op."""
