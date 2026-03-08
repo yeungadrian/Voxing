@@ -27,6 +27,12 @@ class TranscriptionFinal(Message):
         super().__init__()
 
 
+class TTSComplete(Message):
+    def __init__(self, error: str | None = None) -> None:
+        self.error = error
+        super().__init__()
+
+
 class AudioChunk(Message):
     def __init__(self, chunk: np.ndarray) -> None:
         self.chunk = chunk

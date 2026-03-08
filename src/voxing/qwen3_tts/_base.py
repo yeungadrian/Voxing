@@ -32,17 +32,3 @@ class GenerationResult:
     peak_memory_usage: float
     is_streaming_chunk: bool = False
     is_final_chunk: bool = False
-
-
-@dataclass
-class BatchGenerationResult:
-    audio: mx.array
-    sequence_idx: int
-    samples: int
-    sample_rate: int
-    token_count: int
-    audio_duration: str
-    processing_time_seconds: float
-    peak_memory_usage: float
-    is_streaming_chunk: bool = False
-    is_final_chunk: bool = False

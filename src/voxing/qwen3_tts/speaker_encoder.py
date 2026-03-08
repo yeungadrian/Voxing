@@ -319,7 +319,7 @@ class Qwen3TTSSpeakerEncoder(nn.Module):
             # Remove prefix
             new_key = k.replace("speaker_encoder.", "")
 
-            # Handle all Conv1d weights: PyTorch [out, in, kernel] -> MLX [out, kernel, in]
+            # Conv1d weights: [out, in, kernel] -> [out, kernel, in]
             # Matches conv.weight, conv1.weight, conv2.weight, fc.weight, etc.
             if new_key.endswith(".weight") and len(v.shape) == 3:
                 # PyTorch Conv1d: [out_channels, in_channels, kernel_size]

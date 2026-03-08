@@ -7,8 +7,6 @@ import mlx.core as mx
 import mlx.nn as nn
 from transformers import AutoTokenizer
 
-logger = logging.getLogger(__name__)
-
 from voxing._download import _resolve_model_path
 from voxing.qwen3_tts.config import (
     ModelConfig,
@@ -19,6 +17,8 @@ from voxing.qwen3_tts.config import (
 )
 from voxing.qwen3_tts.qwen3_tts import Model
 from voxing.qwen3_tts.speech_tokenizer import Qwen3TTSSpeechTokenizer
+
+logger = logging.getLogger(__name__)
 
 
 def _as_weights_dict(loaded: object) -> dict[str, mx.array]:

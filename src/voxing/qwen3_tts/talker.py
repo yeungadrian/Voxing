@@ -166,11 +166,15 @@ class TalkerRotaryEmbedding(nn.Module):
 
         # H mask: positions where index % 3 == 1, up to length mrope_section[1] * 3
         h_length = mrope_section[1] * 3
-        h_mask = mx.logical_and(mx.array(indices % 3 == 1), mx.array(indices < h_length))
+        h_mask = mx.logical_and(
+            mx.array(indices % 3 == 1), mx.array(indices < h_length)
+        )
 
         # W mask: positions where index % 3 == 2, up to length mrope_section[2] * 3
         w_length = mrope_section[2] * 3
-        w_mask = mx.logical_and(mx.array(indices % 3 == 2), mx.array(indices < w_length))
+        w_mask = mx.logical_and(
+            mx.array(indices % 3 == 2), mx.array(indices < w_length)
+        )
 
         # Expand masks for broadcasting: [1, 1, head_dim // 2]
         h_mask = h_mask.reshape(1, 1, -1)

@@ -9,6 +9,9 @@ from voxing.mimi.modules.conv import (
     ConvTranspose1d,
     ConvTrUpsample1d,
 )
-from voxing.mimi.modules.quantization import EuclideanCodebook, SplitResidualVectorQuantizer
+from voxing.mimi.modules.quantization import (
+    EuclideanCodebook,
+    SplitResidualVectorQuantizer,
+)
 from voxing.mimi.modules.seanet import SeanetConfig, SeanetDecoder, SeanetEncoder
 from voxing.mimi.modules.transformer import ProjectedTransformer, TransformerConfig

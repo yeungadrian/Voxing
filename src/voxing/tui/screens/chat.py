@@ -11,12 +11,15 @@ from voxing.llm import LocalAgent, Message, TextChunk
 from voxing.llm import load_model as load_llm
 from voxing.parakeet import load_model as load_stt
 from voxing.stt import RealtimeTranscriber
+from voxing.tts import load_model as load_tts
+from voxing.tts import speak_text
 from voxing.tui.messages import (
     AudioChunk,
     GenerationComplete,
     TokenReceived,
     TranscriptionFinal,
     TranscriptionUpdate,
+    TTSComplete,
 )
 from voxing.tui.screens.settings import SettingsResult, SettingsScreen
 from voxing.tui.widgets import (
@@ -47,6 +50,8 @@ class ChatScreen(Screen[None]):
         self._transcriber_lock = threading.Lock()
         self._transcription_display: TranscriptionDisplay | None = None
         self._transcribe_cancel = threading.Event()
+        self._tts_enabled: bool = False
+        self._tts_cancel = threading.Event()
 
     @property
     def footer_bar(self) -> FooterBar:
@@ -97,6 +102,8 @@ class ChatScreen(Screen[None]):
             self._handle_clear()
         elif text == "/settings":
             self._handle_settings()
+        elif text == "/tts":
+            self._handle_tts_toggle()
         elif text == "/transcribe":
             self._handle_transcribe()
         elif text == "/help":
@@ -149,6 +156,12 @@ class ChatScreen(Screen[None]):
         self.message_list.scroll_end(animate=False)
         self._transcribe()
 
+    def _handle_tts_toggle(self) -> None:
+        """Toggle text-to-speech playback."""
+        self._tts_enabled = not self._tts_enabled
+        state = "on" if self._tts_enabled else "off"
+        self.footer_bar.set_status(f"[$success]TTS {state}[/]")
+
     def _handle_help(self) -> None:
         self.footer_bar.set_status(
             "[dim]Commands: " + ", ".join(SLASH_COMMANDS) + "[/]"
@@ -164,6 +177,7 @@ class ChatScreen(Screen[None]):
     def shutdown_workers(self) -> None:
         """Signal all background workers to stop."""
         self._transcribe_cancel.set()
+        self._tts_cancel.set()
         with self._transcriber_lock:
             transcriber = self._active_transcriber
         if transcriber is not None:
@@ -173,15 +187,14 @@ class ChatScreen(Screen[None]):
         self.shutdown_workers()
 
     def on_key(self, event: Key) -> None:
-        if event.key == "escape" and not self._transcribe_cancel.is_set():
-            self._transcribe_cancel.set()
-            with self._transcriber_lock:
-                transcriber = self._active_transcriber
-            if transcriber is not None:
-                transcriber.stop()
-            # If _active_transcriber is None, ESC arrived before the worker assigned
-            # it (between model load and transcriber construction). _transcribe_cancel
-            # is already set so the worker will abort at its early-exit check.
+        if event.key == "escape":
+            if not self._transcribe_cancel.is_set():
+                self._transcribe_cancel.set()
+                with self._transcriber_lock:
+                    transcriber = self._active_transcriber
+                if transcriber is not None:
+                    transcriber.stop()
+            self._tts_cancel.set()
 
     # --- Workers ---
 
@@ -264,6 +277,43 @@ class ChatScreen(Screen[None]):
             mx.clear_cache()
             self.post_message(TranscriptionFinal(last_text, error=error))
 
+    @work(thread=True, exclusive=True, group="tts")
+    def _speak(self, text: str) -> None:
+        """Load TTS model, speak the text, then unload."""
+        model = None
+        error: str | None = None
+        try:
+            self.app.call_from_thread(
+                self.footer_bar.set_status, "[$warning]Loading TTS model...[/]"
+            )
+            model = load_tts(self._settings.tts_model_id)
+            self.app.call_from_thread(
+                self.footer_bar.set_status, "[$primary]Speaking...[/]"
+            )
+            for _chunk in speak_text(
+                model,
+                text,
+                voice=self._settings.tts_voice,
+                speed=self._settings.tts_speed,
+                lang_code=self._settings.tts_language,
+                instruct=self._settings.tts_instruct,
+                split_pattern=self._settings.tts_split_pattern,
+                temperature=self._settings.tts_temperature,
+                stream=self._settings.tts_stream,
+                streaming_interval=self._settings.tts_streaming_interval,
+                top_k=self._settings.tts_top_k,
+                top_p=self._settings.tts_top_p,
+                repetition_penalty=self._settings.tts_repetition_penalty,
+            ):
+                if self._tts_cancel.is_set():
+                    break
+        except Exception as exc:
+            error = str(exc) or type(exc).__name__
+        finally:
+            del model
+            mx.clear_cache()
+            self.post_message(TTSComplete(error=error))
+
     # --- Message handlers ---
 
     def _ensure_assistant_msg(self) -> AssistantMessage:
@@ -283,10 +333,30 @@ class ChatScreen(Screen[None]):
             if self._current_assistant_msg.is_empty:
                 self._current_assistant_msg.remove()
             self._current_assistant_msg = None
+        if message.error:
+            self.chat_input.disabled = False
+            self.chat_input.focus()
+            self.footer_bar.set_status(f"[$error]Generation error: {message.error}[/]")
+        elif self._tts_enabled and len(self._messages) >= 2:
+            last_msg = self._messages[-1]
+            assistant_text = last_msg.get("content", "")
+            if assistant_text:
+                self._tts_cancel.clear()
+                self._speak(assistant_text)
+            else:
+                self.chat_input.disabled = False
+                self.chat_input.focus()
+                self.footer_bar.set_status(_IDLE_STATUS)
+        else:
+            self.chat_input.disabled = False
+            self.chat_input.focus()
+            self.footer_bar.set_status(_IDLE_STATUS)
+
+    def on_tts_complete(self, message: TTSComplete) -> None:
         self.chat_input.disabled = False
         self.chat_input.focus()
         if message.error:
-            self.footer_bar.set_status(f"[$error]Generation error: {message.error}[/]")
+            self.footer_bar.set_status(f"[$error]TTS error: {message.error}[/]")
         else:
             self.footer_bar.set_status(_IDLE_STATUS)
 

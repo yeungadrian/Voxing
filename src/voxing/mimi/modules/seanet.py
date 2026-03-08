@@ -300,4 +300,3 @@ class SeanetDecoder(nn.Module):
             xs = layer.step(xs)
         xs = nn.elu(xs, alpha=1.0)
         return self.final_conv1d.step(xs)
-

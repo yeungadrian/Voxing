@@ -682,7 +682,7 @@ class DecoderBlock(nn.Module):
         return x
 
     def step(self, x: mx.array) -> mx.array:
-        """Streaming step — snake is stateless, upsample and residual units use buffers."""
+        """Streaming step — snake stateless, upsample/residual use buffers."""
         x = self.block[0](x)  # SnakeBeta (stateless)
         x = self.block[1].step(x)  # DecoderBlockUpsample (overlap-add)
         for unit in self.block[2:]:  # DecoderResidualUnits
@@ -841,9 +841,11 @@ class Qwen3TTSSpeechTokenizerDecoder(nn.Module):
             audio: [batch, 1, samples]
         """
         if codes.shape[1] != self.config.num_quantizers:
-            raise ValueError(
-                f"Expected {self.config.num_quantizers} layers of codes, got {codes.shape[1]}"
+            msg = (
+                f"Expected {self.config.num_quantizers} layers "
+                f"of codes, got {codes.shape[1]}"
             )
+            raise ValueError(msg)
 
         # Dequantize: [batch, codebook_dim, time] (NCL)
         hidden = self.quantizer.decode(codes)
@@ -1255,7 +1257,7 @@ class Qwen3TTSSpeechTokenizer(nn.Module):
                     n = int(parts[3])  # encoder.encoder.layers.{N}...
 
                     if "block" in k:
-                        # Residual block: encoder.encoder.layers.{N}.block.{B}.conv.{w/b}
+                        # Residual block: .layers.{N}.block.{B}.conv.{w/b}
                         if n not in seanet_residual_map:
                             continue
                         layer_idx = seanet_residual_map[n]
@@ -1263,7 +1265,10 @@ class Qwen3TTSSpeechTokenizer(nn.Module):
                         if block_idx not in seanet_block_map:
                             continue
                         conv_idx = seanet_block_map[block_idx]
-                        base_path = f"encoder_model.encoder.layers.{layer_idx}.residuals.0.block.{conv_idx}"
+                        base_path = (
+                            f"encoder_model.encoder.layers.{layer_idx}"
+                            f".residuals.0.block.{conv_idx}"
+                        )
                         suffix = ".".join(parts[6:])  # conv.weight or conv.bias
                     else:
                         # Direct conv: encoder.encoder.layers.{N}.conv.{w/b}
@@ -1273,7 +1278,7 @@ class Qwen3TTSSpeechTokenizer(nn.Module):
                         suffix = ".".join(parts[4:])  # conv.weight or conv.bias
 
                     new_key = f"{base_path}.conv.{suffix}"
-                    # Transpose conv weights: PyTorch [out, in, kernel] -> MLX [out, kernel, in]
+                    # Conv weights: [out, in, kernel] -> [out, kernel, in]
                     if "weight" in suffix and len(v.shape) == 3:
                         v = v.swapaxes(-1, -2)
                     sanitized[new_key] = v
@@ -1286,6 +1291,10 @@ class Qwen3TTSSpeechTokenizer(nn.Module):
                         parts[3]
                     )  # encoder.encoder_transformer.layers.{i}...
                     rest = ".".join(parts[4:])
+                    pfx = (
+                        "encoder_model.encoder_transformer"
+                        f".transformer.layers.{layer_idx}"
+                    )
 
                     # Collect q/k/v for in_proj concatenation
                     if "self_attn.q_proj.weight" in rest:
@@ -1301,31 +1310,31 @@ class Qwen3TTSSpeechTokenizer(nn.Module):
                             encoder_transformer_qkv[layer_idx] = {}
                         encoder_transformer_qkv[layer_idx]["v"] = v
                     elif "self_attn.o_proj.weight" in rest:
-                        new_key = f"encoder_model.encoder_transformer.transformer.layers.{layer_idx}.self_attn.out_proj.weight"
+                        new_key = f"{pfx}.self_attn.out_proj.weight"
                         sanitized[new_key] = v
                     elif "mlp.fc1.weight" in rest:
-                        new_key = f"encoder_model.encoder_transformer.transformer.layers.{layer_idx}.gating.linear1.weight"
+                        new_key = f"{pfx}.gating.linear1.weight"
                         sanitized[new_key] = v
                     elif "mlp.fc2.weight" in rest:
-                        new_key = f"encoder_model.encoder_transformer.transformer.layers.{layer_idx}.gating.linear2.weight"
+                        new_key = f"{pfx}.gating.linear2.weight"
                         sanitized[new_key] = v
                     elif "input_layernorm.weight" in rest:
-                        new_key = f"encoder_model.encoder_transformer.transformer.layers.{layer_idx}.norm1.weight"
+                        new_key = f"{pfx}.norm1.weight"
                         sanitized[new_key] = v
                     elif "input_layernorm.bias" in rest:
-                        new_key = f"encoder_model.encoder_transformer.transformer.layers.{layer_idx}.norm1.bias"
+                        new_key = f"{pfx}.norm1.bias"
                         sanitized[new_key] = v
                     elif "post_attention_layernorm.weight" in rest:
-                        new_key = f"encoder_model.encoder_transformer.transformer.layers.{layer_idx}.norm2.weight"
+                        new_key = f"{pfx}.norm2.weight"
                         sanitized[new_key] = v
                     elif "post_attention_layernorm.bias" in rest:
-                        new_key = f"encoder_model.encoder_transformer.transformer.layers.{layer_idx}.norm2.bias"
+                        new_key = f"{pfx}.norm2.bias"
                         sanitized[new_key] = v
                     elif "self_attn_layer_scale.scale" in rest:
-                        new_key = f"encoder_model.encoder_transformer.transformer.layers.{layer_idx}.layer_scale_1.scale"
+                        new_key = f"{pfx}.layer_scale_1.scale"
                         sanitized[new_key] = v
                     elif "mlp_layer_scale.scale" in rest:
-                        new_key = f"encoder_model.encoder_transformer.transformer.layers.{layer_idx}.layer_scale_2.scale"
+                        new_key = f"{pfx}.layer_scale_2.scale"
                         sanitized[new_key] = v
 
                 # Encoder downsample conv
@@ -1341,7 +1350,7 @@ class Qwen3TTSSpeechTokenizer(nn.Module):
                     rest = k.replace("encoder.quantizer.", "")
 
                     # Codebook data (cluster_usage / embed_sum)
-                    # HF format: .layers.{i}.codebook.{cluster_usage,embed_sum,initialized}
+                    # HF: .layers.{i}.codebook.{cluster_usage,...}
                     if (
                         ".codebook.cluster_usage" in rest
                         or ".codebook.embed_sum" in rest
@@ -1372,7 +1381,7 @@ class Qwen3TTSSpeechTokenizer(nn.Module):
                             new_key = (
                                 f"encoder_model.quantizer.rvq_rest.{proj_type}.weight"
                             )
-                        # Conv1d weight: PyTorch [out, in, kernel] -> MLX [out, kernel, in]
+                        # Conv1d: [out, in, kernel] -> [out, kernel, in]
                         if len(v.shape) == 3:
                             v = v.swapaxes(-1, -2)
                         sanitized[new_key] = v
@@ -1414,7 +1423,10 @@ class Qwen3TTSSpeechTokenizer(nn.Module):
         for layer_idx, qkv in encoder_transformer_qkv.items():
             if "q" in qkv and "k" in qkv and "v" in qkv:
                 in_proj_weight = mx.concatenate([qkv["q"], qkv["k"], qkv["v"]], axis=0)
-                new_key = f"encoder_model.encoder_transformer.transformer.layers.{layer_idx}.self_attn.in_proj.weight"
+                pfx = (
+                    f"encoder_model.encoder_transformer.transformer.layers.{layer_idx}"
+                )
+                new_key = f"{pfx}.self_attn.in_proj.weight"
                 sanitized[new_key] = in_proj_weight
 
         # Process encoder codebook data into embedding_sum and cluster_usage
@@ -1425,14 +1437,20 @@ class Qwen3TTSSpeechTokenizer(nn.Module):
                     m = re.search(r"layers\.(\d+)", base_path)
                     if m:
                         layer_idx = int(m.group(1))
-                        prefix = f"encoder_model.quantizer.rvq_first.vq.layers.{layer_idx}.codebook"
+                        prefix = (
+                            "encoder_model.quantizer.rvq_first"
+                            f".vq.layers.{layer_idx}.codebook"
+                        )
                         sanitized[f"{prefix}.embedding_sum"] = data["embedding_sum"]
                         sanitized[f"{prefix}.cluster_usage"] = data["cluster_usage"]
                 elif "acoustic_residual_vector_quantizer" in base_path:
                     m = re.search(r"layers\.(\d+)", base_path)
                     if m:
                         layer_idx = int(m.group(1))
-                        prefix = f"encoder_model.quantizer.rvq_rest.vq.layers.{layer_idx}.codebook"
+                        prefix = (
+                            "encoder_model.quantizer.rvq_rest"
+                            f".vq.layers.{layer_idx}.codebook"
+                        )
                         sanitized[f"{prefix}.embedding_sum"] = data["embedding_sum"]
                         sanitized[f"{prefix}.cluster_usage"] = data["cluster_usage"]
 

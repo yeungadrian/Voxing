@@ -23,9 +23,7 @@ dependencies = [
     "rich>=14.3.1",
     "scipy>=1.17.1",
     "sounddevice>=0.5.3",
-    "soundfile>=0.13.1",
     "textual>=7.5.0",
-    "tqdm>=4.67.1",
     "transformers>=4.57.1",
 ]
 
