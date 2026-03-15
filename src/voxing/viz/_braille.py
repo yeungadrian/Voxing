@@ -40,7 +40,7 @@ def bresenham_line(
     height: int,
     dot_w: int,
     dot_h: int,
-    color_grid: "ColorGrid | None" = None,
+    color_grid: ColorGrid | None = None,
     color: str | None = None,
     collect_cells: set[tuple[int, int]] | None = None,
 ) -> None:

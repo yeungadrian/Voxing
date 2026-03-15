@@ -34,11 +34,11 @@ _EXCLUDED_SETTINGS = frozenset({"model_id", "llm_model_id", "sample_rate"})
 def _build_entries(settings: Settings) -> list[SettingEntry]:
     """Build setting entries from config fields."""
     entries: list[SettingEntry] = []
-    for name in settings.model_fields:
+    for name in Settings.model_fields:
         if name in _EXCLUDED_SETTINGS:
             continue
         raw = getattr(settings, name)
-        annotation = settings.model_fields[name].annotation
+        annotation = Settings.model_fields[name].annotation
         args = get_args(annotation) if annotation is not None else ()
         choices: list[str] = []
         if args and all(isinstance(a, str) for a in args):

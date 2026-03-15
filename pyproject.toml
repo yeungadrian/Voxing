@@ -1,6 +1,6 @@
 [project]
 name = "voxing"
-version = "0.2.1"
+version = "0.2.2"
 description = "Voice assistant TUI powered by local MLX models"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -14,15 +14,15 @@ classifiers = [
     "Operating System :: MacOS",
 ]
 dependencies = [
-    "huggingface-hub>=1.4.1",
-    "mlx>=0.30.6",
-    "mlx-lm>=0.30.7",
-    "numpy>=2.4.2",
+    "huggingface-hub>=1.7.1",
+    "mlx>=0.31.1",
+    "mlx-lm>=0.31.1",
+    "numpy>=2.4.3",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
-    "rich>=14.3.1",
-    "sounddevice>=0.5.3",
-    "textual>=7.5.0",
+    "rich>=14.3.3",
+    "sounddevice>=0.5.5",
+    "textual>=8.1.1",
 ]
 
 [project.urls]
