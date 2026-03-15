@@ -1,0 +1,366 @@
+# Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+import time
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Generator
+
+import mlx.core as mx
+import mlx.nn as nn
+import numpy as np
+
+from voxing._download import _resolve_model_path
+from voxing.chatterbox._base import GenerationResult
+
+from .models.s3gen import S3GEN_SIL, S3GEN_SR, S3Gen
+from .models.t3 import T3, T3Cond, T3Config
+from .models.voice_encoder import VoiceEncoder
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizerBase
+
+logger = logging.getLogger(__name__)
+
+S3_SR = 16000
+REPO_ID = "ResembleAI/chatterbox-turbo"
+
+
+def punc_norm(text: str) -> str:
+    """Normalize punctuation for TTS input."""
+    if len(text) == 0:
+        return "You need to add some text for me to talk."
+
+    if text[0].islower():
+        text = text[0].upper() + text[1:]
+
+    text = " ".join(text.split())
+
+    punc_to_replace = [
+        ("\u2026", ", "),
+        (":", ","),
+        ("\u2014", "-"),
+        ("\u2013", "-"),
+        (" ,", ","),
+        ("\u201c", '"'),
+        ("\u201d", '"'),
+        ("\u2018", "'"),
+        ("\u2019", "'"),
+    ]
+    for old_char_sequence, new_char in punc_to_replace:
+        text = text.replace(old_char_sequence, new_char)
+
+    text = text.rstrip(" ")
+    sentence_enders = {".", "!", "?", "-", ","}
+    if not any(text.endswith(p) for p in sentence_enders):
+        text += "."
+
+    return text
+
+
+@dataclass
+class Conditionals:
+    """Conditionals for T3 and S3Gen."""
+
+    t3: T3Cond
+    gen: dict
+
+
+class ChatterboxTurboTTS(nn.Module):
+    """MLX implementation of Chatterbox Turbo TTS."""
+
+    ENC_COND_LEN = 15 * S3_SR
+    DEC_COND_LEN = 10 * S3GEN_SR
+
+    def __init__(
+        self,
+        config: dict | None = None,
+    ):
+        super().__init__()
+        self.sr = S3GEN_SR
+        self.config = config or {}
+        hp = T3Config.turbo()
+        self.t3 = T3(hp)
+        self.s3gen = S3Gen(meanflow=True)
+        self.ve = VoiceEncoder()
+        self.tokenizer: PreTrainedTokenizerBase | None = None
+        self._conds: Conditionals | None = None
+
+    @property
+    def sample_rate(self) -> int:
+        """Output sample rate."""
+        return self.sr
+
+    def sanitize(self, weights: dict) -> dict:
+        """Sanitize PyTorch weights for MLX."""
+        new_weights: dict[str, mx.array] = {}
+
+        ve_weights: dict[str, mx.array] = {}
+        t3_weights: dict[str, mx.array] = {}
+        s3gen_weights: dict[str, mx.array] = {}
+
+        for key, value in weights.items():
+            if key.startswith("ve."):
+                ve_weights[key[3:]] = value
+            elif key.startswith("t3."):
+                t3_weights[key[3:]] = value
+            elif key.startswith("s3gen."):
+                s3gen_weights[key[6:]] = value
+
+        if ve_weights:
+            if hasattr(self.ve, "sanitize"):
+                ve_weights = self.ve.sanitize(ve_weights)
+            for k, v in ve_weights.items():
+                new_weights[f"ve.{k}"] = v
+
+        if t3_weights:
+            for k, v in t3_weights.items():
+                new_weights[f"t3.{k}"] = v
+
+        if s3gen_weights:
+            if hasattr(self.s3gen, "sanitize"):
+                s3gen_weights = self.s3gen.sanitize(s3gen_weights)
+            for k, v in s3gen_weights.items():
+                new_weights[f"s3gen.{k}"] = v
+
+        return new_weights
+
+    def load_weights(self, weights: list | dict, strict: bool = True) -> None:  # type: ignore[override]
+        """Load weights into the model."""
+        if isinstance(weights, dict):
+            weights = list(weights.items())
+
+        ve_weights: list[tuple[str, mx.array]] = []
+        t3_weights: list[tuple[str, mx.array]] = []
+        s3gen_weights: list[tuple[str, mx.array]] = []
+
+        for k, v in weights:
+            if k.startswith("ve."):
+                ve_weights.append((k[3:], v))
+            elif k.startswith("t3."):
+                t3_weights.append((k[3:], v))
+            elif k.startswith("s3gen."):
+                s3gen_weights.append((k[6:], v))
+            elif k.startswith("gen."):
+                continue
+
+        if ve_weights:
+            self.ve.load_weights(ve_weights, strict=False)
+        if t3_weights:
+            self.t3.load_weights(t3_weights, strict=False)
+        if s3gen_weights:
+            self.s3gen.load_weights(s3gen_weights, strict=False)
+
+        mx.eval(
+            self.ve.parameters(),
+            self.t3.parameters(),
+            self.s3gen.parameters(),
+        )
+
+    def generate(
+        self,
+        text: str,
+        repetition_penalty: float = 1.2,
+        top_p: float = 0.95,
+        temperature: float = 0.8,
+        top_k: int = 1000,
+        max_tokens: int = 800,
+    ) -> Generator[GenerationResult, None, None]:
+        """Generate speech from text using pre-loaded conditionals."""
+        assert self._conds is not None, "No conditionals loaded"
+
+        text = punc_norm(text)
+
+        max_chars_per_chunk = (max_tokens // 8) * 4
+        split_pattern = r"(?<=[.!?])\s+"
+
+        sentences = re.split(split_pattern, text)
+        chunks: list[str] = []
+        current_chunk = ""
+
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            if (
+                current_chunk
+                and len(current_chunk) + len(sentence) + 1 > max_chars_per_chunk
+            ):
+                chunks.append(current_chunk.strip())
+                current_chunk = sentence
+            else:
+                current_chunk = (
+                    f"{current_chunk} {sentence}" if current_chunk else sentence
+                )
+
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+
+        chunks = [c for c in chunks if c.strip()]
+        if not chunks:
+            chunks = [text]
+
+        start_time = time.time()
+        total_token_count = 0
+        total_samples = 0
+        segment_idx = 0
+
+        mx.clear_cache()
+
+        for chunk in chunks:
+            if self.tokenizer is not None:
+                text_tokens = self.tokenizer(
+                    chunk, return_tensors="np", padding=True, truncation=True
+                )
+                text_tokens = mx.array(text_tokens.input_ids)
+            else:
+                text_tokens = mx.array([[ord(c) for c in chunk[:512]]])
+
+            chunk_token_count = text_tokens.shape[1]
+            total_token_count += chunk_token_count
+
+            speech_tokens = self.t3.inference_turbo(
+                t3_cond=self._conds.t3,
+                text_tokens=text_tokens,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+                max_gen_len=max_tokens,
+            )
+
+            mx.clear_cache()
+
+            speech_tokens = speech_tokens.reshape(-1)
+            mask = np.where(np.array(speech_tokens) < 6561)[0].tolist()
+            speech_tokens = speech_tokens[mask]
+            silence = mx.array([S3GEN_SIL, S3GEN_SIL, S3GEN_SIL], dtype=mx.int32)
+            speech_tokens = mx.concatenate([speech_tokens, silence])
+            speech_tokens = speech_tokens[None, :]
+
+            wav, _ = self.s3gen.inference(
+                speech_tokens=speech_tokens,
+                ref_dict=self._conds.gen,
+                n_cfm_timesteps=2,
+            )
+
+            if wav.ndim == 2:
+                wav = wav.squeeze(0)
+
+            samples = wav.shape[0]
+            total_samples += samples
+
+            processing_time = time.time() - start_time
+            audio_duration_seconds = samples / self.sample_rate
+
+            duration_hours = int(audio_duration_seconds // 3600)
+            duration_mins = int((audio_duration_seconds % 3600) // 60)
+            duration_secs = int(audio_duration_seconds % 60)
+            duration_ms = int((audio_duration_seconds % 1) * 1000)
+            duration_str = f"{duration_hours:02d}:{duration_mins:02d}:{duration_secs:02d}.{duration_ms:03d}"
+
+            total_audio_duration = total_samples / self.sample_rate
+            rtf = (
+                processing_time / total_audio_duration
+                if total_audio_duration > 0
+                else 0
+            )
+
+            yield GenerationResult(
+                audio=wav,
+                samples=samples,
+                sample_rate=self.sample_rate,
+                segment_idx=segment_idx,
+                token_count=chunk_token_count,
+                audio_duration=duration_str,
+                real_time_factor=round(rtf, 2),
+                prompt={
+                    "tokens": chunk_token_count,
+                    "tokens-per-sec": (
+                        round(total_token_count / processing_time, 2)
+                        if processing_time > 0
+                        else 0
+                    ),
+                },
+                audio_samples={
+                    "samples": samples,
+                    "samples-per-sec": (
+                        round(total_samples / processing_time, 2)
+                        if processing_time > 0
+                        else 0
+                    ),
+                },
+                processing_time_seconds=processing_time,
+                peak_memory_usage=mx.get_peak_memory() / 1e9,
+            )
+
+            segment_idx += 1
+            mx.clear_cache()
+
+
+def load_model(model_id: str) -> ChatterboxTurboTTS:
+    """Download (if needed) and load a Chatterbox Turbo TTS model."""
+    model_path = _resolve_model_path(
+        model_id,
+        allow_patterns=[
+            "*.json",
+            "*.safetensors",
+            "*.txt",
+            "*.model",
+        ],
+    )
+
+    config = json.loads((model_path / "config.json").read_text())
+    model = ChatterboxTurboTTS(config)
+
+    weight_files = list(model_path.glob("*.safetensors"))
+    weights: dict[str, mx.array] = {}
+    for wf in weight_files:
+        if wf.name == "conds.safetensors":
+            continue
+        loaded: dict[str, mx.array] = mx.load(str(wf))  # type: ignore[assignment]
+        weights.update(loaded)
+
+    if hasattr(model, "sanitize"):
+        weights = model.sanitize(weights)
+
+    model.load_weights(weights)
+    model.eval()
+
+    # Load text tokenizer
+    from transformers import AutoTokenizer
+
+    tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(str(model_path))  # type: ignore[assignment]
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model.tokenizer = tokenizer
+
+    # Load pre-computed conditionals
+    conds_path = model_path / "conds.safetensors"
+    if not conds_path.exists():
+        raise FileNotFoundError("conds.safetensors not found in model directory")
+
+    conds_data: dict[str, mx.array] = mx.load(str(conds_path))  # type: ignore[assignment]
+
+    speaker_emb = conds_data.get("t3.speaker_emb")
+    if speaker_emb is None:
+        speaker_emb = mx.zeros((1, 256))
+
+    cond_tokens = conds_data.get("t3.cond_prompt_speech_tokens")
+
+    t3_cond = T3Cond(
+        speaker_emb=speaker_emb,
+        cond_prompt_speech_tokens=cond_tokens,
+    )
+
+    gen_mlx: dict[str, mx.array] = {}
+    for k, v in conds_data.items():
+        if k.startswith("gen."):
+            gen_mlx[k.replace("gen.", "")] = v
+
+    model._conds = Conditionals(t3_cond, gen_mlx)
+
+    return model

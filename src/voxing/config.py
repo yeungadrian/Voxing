@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     max_buffer_secs: float = 45.0
     draft_interval_secs: float = 1.0
 
+    tts_model_id: str = "mlx-community/chatterbox-turbo-fp16"
+
     llm_model_id: str = "LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit"
     llm_system_prompt: str = "You are a helpful voice assistant."
     llm_max_tokens: int = 4096

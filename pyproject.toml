@@ -15,14 +15,18 @@ classifiers = [
 ]
 dependencies = [
     "huggingface-hub>=1.7.1",
+    "librosa>=0.11.0",
     "mlx>=0.31.1",
     "mlx-lm>=0.31.1",
     "numpy>=2.4.3",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
     "rich>=14.3.3",
+    "scipy>=1.17.1",
     "sounddevice>=0.5.5",
     "textual>=8.1.1",
+    "tqdm>=4.67.3",
+    "transformers>=5.2.0",
 ]
 
 [project.urls]
