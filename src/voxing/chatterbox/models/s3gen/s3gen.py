@@ -3,7 +3,6 @@
 
 import logging
 
-import librosa
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
@@ -12,26 +11,19 @@ from voxing.chatterbox.models.s3gen.decoder import ConditionalDecoder
 from voxing.chatterbox.models.s3gen.encoder import UpsampleConformerEncoder
 from voxing.chatterbox.models.s3gen.flow_matching import CausalConditionalCFM
 from voxing.chatterbox.models.s3gen.hifigan import F0Predictor, HiFTGenerator
-from voxing.chatterbox.models.s3gen.mel import mel_spectrogram
 from voxing.chatterbox.models.s3gen.xvector import CAMPPlus
 
 logger = logging.getLogger(__name__)
 
 # Constants
 S3GEN_SR = 24000  # Output sample rate
-S3_SR = 16000  # Input tokenizer sample rate
 S3GEN_SIL = 4299  # Silence token
-SPEECH_VOCAB_SIZE = 6561
 
 
-def drop_invalid_tokens(x: mx.array) -> mx.array:
-    """Remove tokens outside valid vocabulary."""
-    return x[x < SPEECH_VOCAB_SIZE]
-
-
-class S3Token2Mel(nn.Module):
+class S3Gen(nn.Module):
     """
-    S3Gen's CFM decoder: maps S3 speech tokens to mel-spectrograms.
+    Full S3Gen: speech tokens to waveform.
+    Combines token-to-mel (CFM) and mel-to-wav (HiFiGAN).
     """
 
     def __init__(self, meanflow: bool = False) -> None:
@@ -39,7 +31,7 @@ class S3Token2Mel(nn.Module):
         self.meanflow = meanflow
 
         # Token embedding
-        self.input_embedding = nn.Embedding(SPEECH_VOCAB_SIZE, 512)
+        self.input_embedding = nn.Embedding(6561, 512)
 
         # Speaker encoder (CAMPPlus for x-vector extraction)
         self.speaker_encoder = CAMPPlus(
@@ -91,83 +83,22 @@ class S3Token2Mel(nn.Module):
         self.token_mel_ratio = 2
         self.pre_lookahead_len = 3
 
-    def embed_ref(
-        self,
-        ref_wav: mx.array,
-        ref_sr: int,
-        ref_speech_tokens: mx.array | None = None,
-        ref_speech_token_lens: mx.array | None = None,
-        device: str = "auto",
-    ) -> dict[str, mx.array]:
-        """
-        Embed reference audio for speaker conditioning.
+        # HiFiGAN vocoder
+        f0_predictor = F0Predictor()
+        self.mel2wav = HiFTGenerator(
+            sampling_rate=S3GEN_SR,
+            upsample_rates=[8, 5, 3],
+            upsample_kernel_sizes=[16, 11, 7],
+            source_resblock_kernel_sizes=[7, 7, 11],
+            source_resblock_dilation_sizes=[[1, 3, 5], [1, 3, 5], [1, 3, 5]],
+            f0_predictor=f0_predictor,
+        )
 
-        Args:
-            ref_wav: Reference waveform
-            ref_sr: Sample rate
-            ref_speech_tokens: Pre-computed speech tokens (optional)
-            ref_speech_token_lens: Token lengths (optional)
-
-        Returns:
-            Dictionary with prompt tokens, features, and embedding
-        """
-        if isinstance(ref_wav, np.ndarray):
-            ref_wav = mx.array(ref_wav)
-
-        if ref_wav.ndim == 1:
-            ref_wav = ref_wav[None, :]
-
-        # Resample to 24kHz for mel extraction
-        ref_wav_np = np.array(ref_wav[0])
-        if ref_sr != S3GEN_SR:
-            ref_wav_24k = librosa.resample(
-                ref_wav_np, orig_sr=ref_sr, target_sr=S3GEN_SR
-            )
-        else:
-            ref_wav_24k = ref_wav_np
-
-        # Extract mel features
-        ref_mels = mel_spectrogram(ref_wav_24k)
-        ref_mels = ref_mels.transpose(0, 2, 1)  # (B, T, 80)
-
-        # Use provided tokens or create placeholder
-        if ref_speech_tokens is None:
-            ref_speech_tokens = mx.zeros((1, ref_mels.shape[1] // 2), dtype=mx.int32)
-            ref_speech_token_lens = mx.array([ref_speech_tokens.shape[1]])
-        else:
-            # Align tokens and mel lengths (mel = 2 * tokens)
-            actual_token_len = ref_speech_tokens.shape[1]
-            expected_token_len = ref_mels.shape[1] // 2
-
-            if actual_token_len != expected_token_len:
-                if actual_token_len < expected_token_len:
-                    # Tokens shorter - truncate mel to match
-                    expected_mel_len = 2 * actual_token_len
-                    ref_mels = ref_mels[:, :expected_mel_len, :]
-                else:
-                    # Tokens longer - truncate tokens to match mel
-                    ref_speech_tokens = ref_speech_tokens[:, :expected_token_len]
-                    actual_token_len = expected_token_len
-
-            ref_speech_token_lens = mx.array([actual_token_len])
-
-        # Resample to 16kHz for speaker encoder
-        if ref_sr != S3_SR:
-            ref_wav_16k = librosa.resample(ref_wav_np, orig_sr=ref_sr, target_sr=S3_SR)
-        else:
-            ref_wav_16k = ref_wav_np
-
-        # Extract speaker embedding using CAMPPlus
-        ref_x_vector = self.speaker_encoder.inference([mx.array(ref_wav_16k)])
-        mx.eval(ref_x_vector)
-
-        return {
-            "prompt_token": ref_speech_tokens,
-            "prompt_token_len": ref_speech_token_lens,
-            "prompt_feat": ref_mels,
-            "prompt_feat_len": mx.array([ref_mels.shape[1]]),
-            "embedding": ref_x_vector,
-        }
+        # Trim fade for artifact reduction
+        n_trim = S3GEN_SR // 50  # 20ms
+        trim_fade = np.zeros(2 * n_trim)
+        trim_fade[n_trim:] = (np.cos(np.linspace(np.pi, 0, n_trim)) + 1) / 2
+        self.trim_fade = mx.array(trim_fade.astype(np.float32))
 
     def __call__(
         self,
@@ -176,18 +107,7 @@ class S3Token2Mel(nn.Module):
         n_cfm_timesteps: int | None = None,
         finalize: bool = True,
     ) -> mx.array:
-        """
-        Generate mel-spectrogram from speech tokens.
-
-        Args:
-            speech_tokens: Speech token IDs (B, T)
-            ref_dict: Reference embedding dictionary
-            n_cfm_timesteps: Number of CFM steps
-            finalize: Whether this is the final chunk
-
-        Returns:
-            Mel-spectrogram (B, 80, T_mel)
-        """
+        """Generate mel-spectrogram from speech tokens."""
         B = speech_tokens.shape[0]
 
         # Get reference data
@@ -267,61 +187,13 @@ class S3Token2Mel(nn.Module):
         # Remove prompt portion
         return feat[:, :, mel_len1:]
 
-
-class S3Token2Wav(S3Token2Mel):
-    """
-    Full S3Gen: speech tokens to waveform.
-    Combines token-to-mel (CFM) and mel-to-wav (HiFiGAN).
-    """
-
-    def __init__(self, meanflow: bool = False) -> None:
-        super().__init__(meanflow)
-
-        # HiFiGAN vocoder
-        f0_predictor = F0Predictor()
-        self.mel2wav = HiFTGenerator(
-            sampling_rate=S3GEN_SR,
-            upsample_rates=[8, 5, 3],
-            upsample_kernel_sizes=[16, 11, 7],
-            source_resblock_kernel_sizes=[7, 7, 11],
-            source_resblock_dilation_sizes=[[1, 3, 5], [1, 3, 5], [1, 3, 5]],
-            f0_predictor=f0_predictor,
-        )
-
-        # Trim fade for artifact reduction
-        n_trim = S3GEN_SR // 50  # 20ms
-        trim_fade = np.zeros(2 * n_trim)
-        trim_fade[n_trim:] = (np.cos(np.linspace(np.pi, 0, n_trim)) + 1) / 2
-        self.trim_fade = mx.array(trim_fade.astype(np.float32))
-
     def inference(
         self,
         speech_tokens: mx.array,
-        ref_dict: dict[str, mx.array] | None = None,
-        ref_wav: mx.array | None = None,
-        ref_sr: int | None = None,
+        ref_dict: dict[str, mx.array],
         n_cfm_timesteps: int | None = None,
     ) -> tuple[mx.array, mx.array]:
-        """
-        Full inference: speech tokens to waveform.
-
-        Args:
-            speech_tokens: Speech token IDs (B, T)
-            ref_dict: Pre-computed reference embeddings
-            ref_wav: Reference waveform (if ref_dict not provided)
-            ref_sr: Reference sample rate
-            n_cfm_timesteps: Number of CFM steps
-
-        Returns:
-            audio: Generated waveform (B, T_audio)
-            source: Source signal for debugging
-        """
-        # Get reference dict
-        if ref_dict is None:
-            if ref_wav is None:
-                raise ValueError("Must provide either ref_dict or ref_wav")
-            ref_dict = self.embed_ref(ref_wav, ref_sr)  # type: ignore[arg-type]
-
+        """Full inference: speech tokens to waveform."""
         # Default timesteps for meanflow
         if n_cfm_timesteps is None:
             n_cfm_timesteps = 2 if self.meanflow else 10
@@ -348,78 +220,8 @@ class S3Token2Wav(S3Token2Mel):
 
         return output_wavs, output_sources
 
-    def inference_stream(
-        self,
-        speech_tokens: mx.array,
-        ref_dict: dict[str, mx.array],
-        n_cfm_timesteps: int | None = None,
-        prev_audio_samples: int = 0,
-        is_final: bool = False,
-    ) -> tuple[mx.array, int]:
-        """
-        Streaming inference: convert speech tokens to waveform for streaming.
-
-        This method processes accumulated tokens and returns the new audio
-        samples that weren't returned in previous chunks.
-
-        Args:
-            speech_tokens: All accumulated speech token IDs (B, T)
-            ref_dict: Pre-computed reference embeddings
-            n_cfm_timesteps: Number of CFM steps
-            prev_audio_samples: Number of audio samples already returned
-            is_final: Whether this is the final chunk
-
-        Returns:
-            new_audio: New audio samples (B, T_new)
-            total_samples: Total number of samples generated so far
-        """
-        # Default timesteps for meanflow
-        if n_cfm_timesteps is None:
-            n_cfm_timesteps = 2 if self.meanflow else 10
-
-        # Generate mel from all accumulated tokens
-        output_mels = self(
-            speech_tokens,
-            ref_dict=ref_dict,
-            n_cfm_timesteps=n_cfm_timesteps,
-            finalize=is_final,
-        )
-
-        # Vocoder
-        output_mels = output_mels.transpose(0, 2, 1)  # (B, T, 80) for HiFiGAN
-        output_wavs, _ = self.mel2wav.inference(output_mels, None)
-
-        # Apply trim fade only on first chunk
-        if prev_audio_samples == 0:
-            fade_len = len(self.trim_fade)
-            if output_wavs.shape[1] >= fade_len:
-                faded_start = output_wavs[:, :fade_len] * self.trim_fade
-                output_wavs = mx.concatenate(
-                    [faded_start, output_wavs[:, fade_len:]], axis=1
-                )
-
-        total_samples = output_wavs.shape[1]
-
-        # Return only new samples (samples after what we've already returned)
-        if prev_audio_samples > 0 and prev_audio_samples < total_samples:
-            new_audio = output_wavs[:, prev_audio_samples:]
-        elif prev_audio_samples == 0:
-            new_audio = output_wavs
-        else:
-            # No new samples
-            new_audio = output_wavs[:, :0]  # Empty with correct shape
-
-        return new_audio, total_samples
-
     def sanitize(self, weights: dict) -> dict:
-        """
-        Sanitize PyTorch weights for MLX compatibility.
-
-        Handles:
-        - Conv weight transposition (PyTorch OIHW/OIK -> MLX OHWI/OKI)
-        - BatchNorm running stats
-        - CAMPPlus speaker encoder weights
-        """
+        """Sanitize PyTorch weights for MLX compatibility."""
         new_weights = {}
 
         for key, value in weights.items():
@@ -463,7 +265,3 @@ class S3Token2Wav(S3Token2Mel):
             new_weights[new_key] = value
 
         return new_weights
-
-
-# Alias for compatibility
-S3Gen = S3Token2Wav

@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from collections.abc import Generator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -18,14 +17,11 @@ from voxing._download import _resolve_model_path
 from voxing.chatterbox._base import GenerationResult
 from voxing.chatterbox.models.s3gen import S3GEN_SIL, S3GEN_SR, S3Gen
 from voxing.chatterbox.models.t3 import T3, T3Cond, T3Config
-from voxing.chatterbox.models.voice_encoder import VoiceEncoder
 
 if TYPE_CHECKING:
-    from transformers import PreTrainedTokenizerBase, PreTrainedTokenizerFast
+    from transformers import PreTrainedTokenizerBase
 
 logger = logging.getLogger(__name__)
-
-S3_SR = 16000
 
 
 def punc_norm(text: str) -> str:
@@ -71,9 +67,6 @@ class Conditionals:
 class ChatterboxTurboTTS(nn.Module):
     """MLX implementation of Chatterbox Turbo TTS."""
 
-    ENC_COND_LEN = 15 * S3_SR
-    DEC_COND_LEN = 10 * S3GEN_SR
-
     def __init__(
         self,
         config: dict[str, object] | None = None,
@@ -84,8 +77,7 @@ class ChatterboxTurboTTS(nn.Module):
         hp = T3Config.turbo()
         self.t3 = T3(hp)
         self.s3gen = S3Gen(meanflow=True)
-        self.ve = VoiceEncoder()
-        self.tokenizer: PreTrainedTokenizerFast | PreTrainedTokenizerBase | None = None
+        self.tokenizer: PreTrainedTokenizerBase | None = None
         self._conds: Conditionals | None = None
 
     @property
@@ -97,23 +89,16 @@ class ChatterboxTurboTTS(nn.Module):
         """Sanitize PyTorch weights for MLX."""
         new_weights: dict[str, mx.array] = {}
 
-        ve_weights: dict[str, mx.array] = {}
         t3_weights: dict[str, mx.array] = {}
         s3gen_weights: dict[str, mx.array] = {}
 
         for key, value in weights.items():
             if key.startswith("ve."):
-                ve_weights[key[3:]] = value
-            elif key.startswith("t3."):
+                continue
+            if key.startswith("t3."):
                 t3_weights[key[3:]] = value
             elif key.startswith("s3gen."):
                 s3gen_weights[key[6:]] = value
-
-        if ve_weights:
-            if hasattr(self.ve, "sanitize"):
-                ve_weights = self.ve.sanitize(ve_weights)
-            for k, v in ve_weights.items():
-                new_weights[f"ve.{k}"] = v
 
         if t3_weights:
             for k, v in t3_weights.items():
@@ -127,7 +112,7 @@ class ChatterboxTurboTTS(nn.Module):
 
         return new_weights
 
-    def load_weights(  # type: ignore[override]
+    def _load_weights(
         self,
         weights: list[tuple[str, mx.array]] | dict[str, mx.array],
         strict: bool = True,
@@ -136,29 +121,21 @@ class ChatterboxTurboTTS(nn.Module):
         if isinstance(weights, dict):
             weights = list(weights.items())
 
-        ve_weights: list[tuple[str, mx.array]] = []
         t3_weights: list[tuple[str, mx.array]] = []
         s3gen_weights: list[tuple[str, mx.array]] = []
 
         for k, v in weights:
-            if k.startswith("ve."):
-                ve_weights.append((k[3:], v))
-            elif k.startswith("t3."):
+            if k.startswith("t3."):
                 t3_weights.append((k[3:], v))
             elif k.startswith("s3gen."):
                 s3gen_weights.append((k[6:], v))
-            elif k.startswith("gen."):
-                continue
 
-        if ve_weights:
-            self.ve.load_weights(ve_weights, strict=False)
         if t3_weights:
             self.t3.load_weights(t3_weights, strict=False)
         if s3gen_weights:
             self.s3gen.load_weights(s3gen_weights, strict=False)
 
         mx.eval(
-            self.ve.parameters(),
             self.t3.parameters(),
             self.s3gen.parameters(),
         )
@@ -206,13 +183,9 @@ class ChatterboxTurboTTS(nn.Module):
         if not chunks:
             chunks = [text]
 
-        start_time = time.time()
-        total_token_count = 0
-        total_samples = 0
-
         mx.clear_cache()
 
-        for segment_idx, chunk in enumerate(chunks):
+        for chunk in chunks:
             if self.tokenizer is not None:
                 text_tokens = self.tokenizer(
                     chunk, return_tensors="np", padding=True, truncation=True
@@ -220,9 +193,6 @@ class ChatterboxTurboTTS(nn.Module):
                 text_tokens = mx.array(text_tokens.input_ids)
             else:
                 text_tokens = mx.array([[ord(c) for c in chunk[:512]]])
-
-            chunk_token_count = text_tokens.shape[1]
-            total_token_count += chunk_token_count
 
             speech_tokens = self.t3.inference_turbo(
                 t3_cond=self._conds.t3,
@@ -252,54 +222,9 @@ class ChatterboxTurboTTS(nn.Module):
             if wav.ndim == 2:
                 wav = wav.squeeze(0)
 
-            samples = wav.shape[0]
-            total_samples += samples
-
-            processing_time = time.time() - start_time
-            audio_duration_seconds = samples / self.sample_rate
-
-            duration_hours = int(audio_duration_seconds // 3600)
-            duration_mins = int((audio_duration_seconds % 3600) // 60)
-            duration_secs = int(audio_duration_seconds % 60)
-            duration_ms = int((audio_duration_seconds % 1) * 1000)
-            duration_str = (
-                f"{duration_hours:02d}:{duration_mins:02d}"
-                f":{duration_secs:02d}.{duration_ms:03d}"
-            )
-
-            total_audio_duration = total_samples / self.sample_rate
-            rtf = (
-                processing_time / total_audio_duration
-                if total_audio_duration > 0
-                else 0
-            )
-
             yield GenerationResult(
                 audio=wav,
-                samples=samples,
                 sample_rate=self.sample_rate,
-                segment_idx=segment_idx,
-                token_count=chunk_token_count,
-                audio_duration=duration_str,
-                real_time_factor=round(rtf, 2),
-                prompt={
-                    "tokens": chunk_token_count,
-                    "tokens-per-sec": (
-                        round(total_token_count / processing_time, 2)
-                        if processing_time > 0
-                        else 0
-                    ),
-                },
-                audio_samples={
-                    "samples": samples,
-                    "samples-per-sec": (
-                        round(total_samples / processing_time, 2)
-                        if processing_time > 0
-                        else 0
-                    ),
-                },
-                processing_time_seconds=processing_time,
-                peak_memory_usage=mx.get_peak_memory() / 1e9,
             )
 
             mx.clear_cache()
@@ -325,13 +250,13 @@ def load_model(model_id: str) -> ChatterboxTurboTTS:
     for wf in weight_files:
         if wf.name == "conds.safetensors":
             continue
-        loaded: dict[str, mx.array] = mx.load(str(wf))  # type: ignore[assignment]
+        loaded = cast(dict[str, mx.array], mx.load(str(wf)))
         weights.update(loaded)
 
     if hasattr(model, "sanitize"):
         weights = model.sanitize(weights)
 
-    model.load_weights(weights)
+    model._load_weights(weights)
     model.eval()
 
     # Load text tokenizer
@@ -349,7 +274,7 @@ def load_model(model_id: str) -> ChatterboxTurboTTS:
     if not conds_path.exists():
         raise FileNotFoundError("conds.safetensors not found in model directory")
 
-    conds_data: dict[str, mx.array] = mx.load(str(conds_path))  # type: ignore[assignment]
+    conds_data = cast(dict[str, mx.array], mx.load(str(conds_path)))
 
     speaker_emb = conds_data.get("t3.speaker_emb")
     if speaker_emb is None:

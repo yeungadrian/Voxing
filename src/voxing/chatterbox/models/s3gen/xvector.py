@@ -25,7 +25,7 @@ def pad_list(xs: list[mx.array], pad_value: float = 0) -> mx.array:
     for i, x in enumerate(xs):
         # Use slice assignment
         mx.arange(x.shape[0])
-        pad = pad.at[i, : x.shape[0]].set(x)  # type: ignore[union-attr]
+        pad = pad.at[i, : x.shape[0]].add(x)
 
     return pad
 

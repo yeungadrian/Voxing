@@ -2,8 +2,6 @@
 # (https://github.com/Blaizzy/mlx-audio)
 
 
-from collections.abc import Generator
-
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
@@ -84,130 +82,6 @@ class T3(nn.Module):
         embeds = mx.concatenate([cond_emb, text_emb, speech_emb], axis=1)
 
         return embeds, len_cond
-
-    def inference_turbo_stream(
-        self,
-        t3_cond: T3Cond,
-        text_tokens: mx.array,
-        temperature: float = 0.8,
-        top_k: int = 1000,
-        top_p: float = 0.95,
-        repetition_penalty: float = 1.2,
-        max_gen_len: int = 1000,
-        chunk_size: int = 40,
-    ) -> Generator[tuple[mx.array, bool]]:
-        """
-        Streaming turbo inference: generate speech tokens from text tokens,
-        yielding chunks of tokens as they're generated.
-
-        Args:
-            t3_cond: Conditioning data
-            text_tokens: Input text tokens (B, T)
-            temperature: Sampling temperature
-            top_k: Top-k sampling parameter
-            top_p: Top-p (nucleus) sampling parameter
-            repetition_penalty: Penalty for repeating tokens
-            max_gen_len: Maximum generation length
-            chunk_size: Number of tokens to accumulate before yielding
-
-        Yields:
-            Chunks of generated speech tokens
-        """
-        # Ensure batch dimension
-        if text_tokens.ndim == 1:
-            text_tokens = text_tokens[None, :]
-
-        # Initial speech token
-        B = text_tokens.shape[0]
-        speech_start_token = (
-            mx.ones((B, 1), dtype=mx.int32) * self.hp.start_speech_token
-        )
-
-        # Prepare initial embeddings
-        embeds, _ = self.prepare_input_embeds(
-            t3_cond=t3_cond,
-            text_tokens=text_tokens,
-            speech_tokens=speech_start_token,
-        )
-
-        # Initial forward pass
-        hidden_states, cache = self.tfmr(inputs_embeds=embeds, cache=None)
-
-        # Get first speech prediction
-        speech_hidden = hidden_states[:, -1:, :]
-        speech_logits = self.speech_head(speech_hidden)
-
-        # Sample first token
-        next_speech_token = self._sample_token(
-            speech_logits[:, -1, :],
-            temperature=temperature,
-            top_k=top_k,
-            top_p=top_p,
-            generated_tokens=None,
-            repetition_penalty=repetition_penalty,
-        )
-
-        # Pre-allocate buffer for generated tokens (in-place approach)
-        all_generated = mx.zeros((B, max_gen_len + 1), dtype=mx.int32)
-        all_generated[:, 0] = next_speech_token[:, 0]
-        num_generated = 1
-
-        chunk_tokens = [next_speech_token]
-        current_speech_token = next_speech_token
-
-        # Generation loop - match non-streaming version closely
-        for _ in range(max_gen_len):
-            # Get embedding for current token
-            current_speech_embed = self.speech_emb(current_speech_token)
-
-            # Forward pass with cache
-            hidden_states, cache = self.tfmr(
-                inputs_embeds=current_speech_embed,
-                cache=cache,
-            )
-
-            # Get logits
-            speech_logits = self.speech_head(hidden_states)
-
-            # Sample next token (use pre-allocated buffer slice)
-            next_speech_token = self._sample_token(
-                speech_logits[:, -1, :],
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
-                generated_tokens=all_generated[:, :num_generated],
-                repetition_penalty=repetition_penalty,
-            )
-
-            # In-place update of pre-allocated buffer
-            all_generated[:, num_generated] = next_speech_token[:, 0]
-            num_generated += 1
-
-            chunk_tokens.append(next_speech_token)
-            current_speech_token = next_speech_token
-
-            # Check for EOS - need to evaluate to check the value
-            mx.eval(next_speech_token)
-            if int(next_speech_token[0, 0]) == self.hp.stop_speech_token:
-                # Yield remaining tokens (excluding EOS)
-                if len(chunk_tokens) > 1:
-                    chunk = mx.concatenate(chunk_tokens[:-1], axis=1)
-                    mx.eval(chunk)
-                    yield chunk, True  # is_final=True
-                return
-
-            # Yield chunk if we've accumulated enough tokens
-            if len(chunk_tokens) >= chunk_size:
-                chunk = mx.concatenate(chunk_tokens, axis=1)
-                mx.eval(chunk)
-                yield chunk, False  # is_final=False
-                chunk_tokens = []
-
-        # Yield any remaining tokens
-        if chunk_tokens:
-            chunk = mx.concatenate(chunk_tokens, axis=1)
-            mx.eval(chunk)
-            yield chunk, True  # is_final=True
 
     def inference_turbo(
         self,

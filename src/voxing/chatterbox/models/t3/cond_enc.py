@@ -13,34 +13,20 @@ class T3Cond:
     """Dataclass container for conditioning info."""
 
     speaker_emb: mx.array
-    clap_emb: mx.array | None = None
     cond_prompt_speech_tokens: mx.array | None = None
     cond_prompt_speech_emb: mx.array | None = None
-    emotion_adv: mx.array | None = None
 
 
 class T3CondEnc(nn.Module):
-    """Handle non-text conditioning: speaker embeddings, prompts, CLAP, emotion."""
+    """Handle non-text conditioning: speaker embeddings and prompts."""
 
     def __init__(self, hp: T3Config) -> None:
         super().__init__()
         self.hp = hp
-
-        if hp.encoder_type == "voice_encoder":
-            self.spkr_enc = nn.Linear(hp.speaker_embed_size, hp.n_channels)
-        else:
-            raise NotImplementedError(str(hp.encoder_type))
-
-        # Emotion adv (not used in Turbo)
-        self.emotion_adv_fc = None
-        if hp.emotion_adv:
-            self.emotion_adv_fc = nn.Linear(1, hp.n_channels, bias=False)
-
-        # Perceiver resampler (not used in Turbo)
-        self.perceiver = None
+        self.spkr_enc = nn.Linear(hp.speaker_embed_size, hp.n_channels)
 
     def __call__(self, cond: T3Cond) -> mx.array:
-        # Validate
+        """Encode conditioning into a sequence of embeddings."""
         assert (cond.cond_prompt_speech_tokens is None) == (
             cond.cond_prompt_speech_emb is None
         ), "no embeddings for cond_prompt_speech_tokens"
@@ -52,37 +38,12 @@ class T3CondEnc(nn.Module):
         B = cond_spkr.shape[0]
         dim = cond_spkr.shape[-1]
 
-        # Empty tensor for unused conditions
-        empty = mx.zeros((B, 0, dim))
-
-        # CLAP (not implemented)
-        assert cond.clap_emb is None, "clap_embed not implemented"
-        cond_clap = empty
-
         # Cond prompt
         cond_prompt_speech_emb = cond.cond_prompt_speech_emb
         if cond_prompt_speech_emb is None:
-            cond_prompt_speech_emb = empty
-        elif self.hp.use_perceiver_resampler and self.perceiver is not None:
-            cond_prompt_speech_emb = self.perceiver(cond_prompt_speech_emb)
+            cond_prompt_speech_emb = mx.zeros((B, 0, dim))
 
-        # Emotion Adv (not used in Turbo)
-        cond_emotion_adv = empty
-        if (
-            self.hp.emotion_adv
-            and cond.emotion_adv is not None
-            and self.emotion_adv_fc is not None
-        ):
-            emotion_val = cond.emotion_adv.reshape(-1, 1, 1)
-            cond_emotion_adv = self.emotion_adv_fc(emotion_val)
-
-        # Concat and return
         return mx.concatenate(
-            [
-                cond_spkr,
-                cond_clap,
-                cond_prompt_speech_emb,
-                cond_emotion_adv,
-            ],
+            [cond_spkr, cond_prompt_speech_emb],
             axis=1,
         )

@@ -1,5 +1,6 @@
 # Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
 
+import math
 from dataclasses import dataclass
 
 import mlx.core as mx
@@ -36,12 +37,15 @@ class GPT2Config:
         return self.n_layer
 
 
+_GELU_SQRT_2_OVER_PI = mx.array(math.sqrt(2.0 / math.pi))
+
+
 def gelu_new(x: mx.array) -> mx.array:
     """GELU activation (Google BERT / OpenAI GPT variant)."""
     return (
         0.5
         * x
-        * (1.0 + mx.tanh(mx.sqrt(2.0 / mx.pi) * (x + 0.044715 * mx.power(x, 3.0))))  # type: ignore[arg-type]
+        * (1.0 + mx.tanh(_GELU_SQRT_2_OVER_PI * (x + 0.044715 * mx.power(x, 3.0))))
     )
 
 
