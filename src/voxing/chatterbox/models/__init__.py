@@ -1,8 +1,8 @@
 # Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
 
-from .s3gen import S3GEN_SIL, S3GEN_SR, S3Gen
-from .t3 import T3, T3Cond, T3Config
-from .voice_encoder import VoiceEncoder
+from voxing.chatterbox.models.s3gen import S3GEN_SIL, S3GEN_SR, S3Gen
+from voxing.chatterbox.models.t3 import T3, T3Cond, T3Config
+from voxing.chatterbox.models.voice_encoder import VoiceEncoder
 
 __all__ = [
     "T3",

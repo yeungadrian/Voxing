@@ -1,7 +1,6 @@
 # Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
 
 import math
-from typing import List, Optional
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -21,7 +20,7 @@ class Conv1dPT(nn.Module):
         stride: int = 1,
         padding: int = 0,
         dilation: int = 1,
-    ):
+    ) -> None:
         super().__init__()
         self.conv = nn.Conv1d(
             in_channels,
@@ -52,7 +51,7 @@ class ConvTranspose1dPT(nn.Module):
         kernel_size: int,
         stride: int = 1,
         padding: int = 0,
-    ):
+    ) -> None:
         super().__init__()
         self.conv = nn.ConvTranspose1d(
             in_channels, out_channels, kernel_size, stride=stride, padding=padding
@@ -75,14 +74,13 @@ def sinusoidal_pos_emb(timesteps: mx.array, dim: int, scale: float = 1000) -> mx
     emb = math.log(10000) / (half_dim - 1)
     emb = mx.exp(mx.arange(half_dim, dtype=mx.float32) * -emb)
     emb = scale * timesteps[:, None] * emb[None, :]
-    emb = mx.concatenate([mx.sin(emb), mx.cos(emb)], axis=-1)
-    return emb
+    return mx.concatenate([mx.sin(emb), mx.cos(emb)], axis=-1)
 
 
 class TimestepEmbedding(nn.Module):
     """MLP for timestep embedding."""
 
-    def __init__(self, in_channels: int, time_embed_dim: int):
+    def __init__(self, in_channels: int, time_embed_dim: int) -> None:
         super().__init__()
         self.linear_1 = nn.Linear(in_channels, time_embed_dim)
         self.linear_2 = nn.Linear(time_embed_dim, time_embed_dim)
@@ -90,8 +88,7 @@ class TimestepEmbedding(nn.Module):
     def __call__(self, x: mx.array) -> mx.array:
         x = self.linear_1(x)
         x = nn.silu(x)
-        x = self.linear_2(x)
-        return x
+        return self.linear_2(x)
 
 
 class CausalConv1d(nn.Module):
@@ -104,7 +101,7 @@ class CausalConv1d(nn.Module):
         kernel_size: int,
         stride: int = 1,
         dilation: int = 1,
-    ):
+    ) -> None:
         super().__init__()
         self.kernel_size = kernel_size
         self.dilation = dilation
@@ -129,7 +126,7 @@ class CausalConv1d(nn.Module):
 class Block1D(nn.Module):
     """Basic 1D block with conv, norm, and activation."""
 
-    def __init__(self, dim: int, dim_out: int, groups: int = 8):
+    def __init__(self, dim: int, dim_out: int, groups: int = 8) -> None:
         super().__init__()
         self.conv = Conv1dPT(dim, dim_out, kernel_size=3, padding=1)
         self.norm = nn.GroupNorm(groups, dim_out)
@@ -147,11 +144,12 @@ class Block1D(nn.Module):
 
 
 class CausalBlock1D(nn.Module):
-    """Causal version of Block1D - matches PyTorch structure: Conv + LayerNorm + Mish."""
+    """Causal Block1D: Conv + LayerNorm + Mish."""
 
-    def __init__(self, dim: int, dim_out: int, groups: int = 8):
+    def __init__(self, dim: int, dim_out: int, groups: int = 8) -> None:
         super().__init__()
-        # PyTorch structure: block = Sequential(CausalConv, Transpose, LayerNorm, Transpose, Mish)
+        # PyTorch: Sequential(CausalConv, Transpose,
+        #   LayerNorm, Transpose, Mish)
         # So the order is: Conv -> LayerNorm -> Mish
         self.block = [
             CausalConv1d(dim, dim_out, kernel_size=3),  # block.0
@@ -181,7 +179,7 @@ class ResnetBlock1D(nn.Module):
         time_emb_dim: int,
         causal: bool = True,
         groups: int = 8,
-    ):
+    ) -> None:
         super().__init__()
         # PyTorch structure: mlp = [Mish (index 0), Linear (index 1)]
         # So mlp.1 is the Linear layer
@@ -210,7 +208,7 @@ class ResnetBlock1D(nn.Module):
 class Downsample1D(nn.Module):
     """1D downsampling layer."""
 
-    def __init__(self, dim: int):
+    def __init__(self, dim: int) -> None:
         super().__init__()
         self.conv = Conv1dPT(dim, dim, kernel_size=3, stride=2, padding=1)
 
@@ -221,7 +219,7 @@ class Downsample1D(nn.Module):
 class Upsample1D(nn.Module):
     """1D upsampling layer with conv transpose."""
 
-    def __init__(self, dim: int):
+    def __init__(self, dim: int) -> None:
         super().__init__()
         self.conv = ConvTranspose1dPT(dim, dim, kernel_size=4, stride=2, padding=1)
 
@@ -238,7 +236,7 @@ class SelfAttention1D(nn.Module):
 
     def __init__(
         self, dim: int, num_heads: int = 8, head_dim: int = 64, dropout: float = 0.0
-    ):
+    ) -> None:
         super().__init__()
         self.num_heads = num_heads
         self.head_dim = head_dim
@@ -251,7 +249,7 @@ class SelfAttention1D(nn.Module):
         self.to_v = nn.Linear(dim, inner_dim, bias=False)
         self.to_out = [nn.Linear(inner_dim, dim)]  # to_out.0
 
-    def __call__(self, x: mx.array, mask: Optional[mx.array] = None) -> mx.array:
+    def __call__(self, x: mx.array, mask: mx.array | None = None) -> mx.array:
         B, T, C = x.shape
 
         q = self.to_q(x)
@@ -283,7 +281,7 @@ class SelfAttention1D(nn.Module):
 class GELU(nn.Module):
     """GELU activation with linear projection - matches diffusers GELU."""
 
-    def __init__(self, dim_in: int, dim_out: int):
+    def __init__(self, dim_in: int, dim_out: int) -> None:
         super().__init__()
         # PyTorch names this 'proj'
         self.proj = nn.Linear(dim_in, dim_out)
@@ -296,7 +294,7 @@ class GELU(nn.Module):
 class FeedForward(nn.Module):
     """Feed-forward network - matches PyTorch ff.net structure with GELU activation."""
 
-    def __init__(self, dim: int, mult: int = 4, dropout: float = 0.0):
+    def __init__(self, dim: int, mult: int = 4, dropout: float = 0.0) -> None:
         super().__init__()
         inner_dim = dim * mult  # 256 * 4 = 1024
         # PyTorch structure: net = [GELU (index 0), Dropout (index 1), Linear (index 2)]
@@ -310,8 +308,7 @@ class FeedForward(nn.Module):
 
     def __call__(self, x: mx.array) -> mx.array:
         x = self.net[0](x)  # GELU
-        x = self.net[1](x)  # Output linear
-        return x
+        return self.net[1](x)  # Output linear
 
 
 class TransformerBlock(nn.Module):
@@ -324,7 +321,7 @@ class TransformerBlock(nn.Module):
         head_dim: int = 64,
         ff_mult: int = 4,
         dropout: float = 0.0,
-    ):
+    ) -> None:
         super().__init__()
         # PyTorch naming: attn1, norm1, norm3, ff
         self.attn1 = SelfAttention1D(dim, num_heads, head_dim, dropout)
@@ -332,14 +329,13 @@ class TransformerBlock(nn.Module):
         self.norm1 = nn.LayerNorm(dim)
         self.norm3 = nn.LayerNorm(dim)  # Note: norm3, not norm2 (to match PyTorch)
 
-    def __call__(self, x: mx.array, mask: Optional[mx.array] = None) -> mx.array:
+    def __call__(self, x: mx.array, mask: mx.array | None = None) -> mx.array:
         x = x + self.attn1(self.norm1(x), mask)
-        x = x + self.ff(self.norm3(x))
-        return x
+        return x + self.ff(self.norm3(x))
 
 
 class DownBlock(nn.Module):
-    """Down block containing ResNet, transformers, and downsample - for proper MLX parameter tracking."""
+    """Down block with ResNet, transformers, and downsample."""
 
     def __init__(
         self,
@@ -351,7 +347,7 @@ class DownBlock(nn.Module):
         num_heads: int,
         attention_head_dim: int,
         is_last: bool,
-    ):
+    ) -> None:
         super().__init__()
         self.resnet = ResnetBlock1D(
             input_channel, output_channel, time_embed_dim, causal
@@ -371,7 +367,7 @@ class DownBlock(nn.Module):
 
 
 class MidBlock(nn.Module):
-    """Mid block containing ResNet and transformers - for proper MLX parameter tracking."""
+    """Mid block with ResNet and transformers."""
 
     def __init__(
         self,
@@ -381,7 +377,7 @@ class MidBlock(nn.Module):
         n_blocks: int,
         num_heads: int,
         attention_head_dim: int,
-    ):
+    ) -> None:
         super().__init__()
         self.resnet = ResnetBlock1D(channels, channels, time_embed_dim, causal)
         self.transformer_blocks = [
@@ -391,7 +387,7 @@ class MidBlock(nn.Module):
 
 
 class UpBlock(nn.Module):
-    """Up block containing ResNet, transformers, and upsample - for proper MLX parameter tracking."""
+    """Up block with ResNet, transformers, and upsample."""
 
     def __init__(
         self,
@@ -403,7 +399,7 @@ class UpBlock(nn.Module):
         num_heads: int,
         attention_head_dim: int,
         is_last: bool,
-    ):
+    ) -> None:
         super().__init__()
         self.resnet = ResnetBlock1D(
             input_channel, output_channel, time_embed_dim, causal
@@ -433,14 +429,16 @@ class ConditionalDecoder(nn.Module):
         in_channels: int = 320,
         out_channels: int = 80,
         causal: bool = True,
-        channels: List[int] = [256],
+        channels: list[int] | None = None,
         dropout: float = 0.0,
         attention_head_dim: int = 64,
         n_blocks: int = 4,
         num_mid_blocks: int = 12,
         num_heads: int = 8,
         meanflow: bool = False,
-    ):
+    ) -> None:
+        if channels is None:
+            channels = [256]
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -528,9 +526,9 @@ class ConditionalDecoder(nn.Module):
         mask: mx.array,
         mu: mx.array,
         t: mx.array,
-        spks: Optional[mx.array] = None,
-        cond: Optional[mx.array] = None,
-        r: Optional[mx.array] = None,
+        spks: mx.array | None = None,
+        cond: mx.array | None = None,
+        r: mx.array | None = None,
     ) -> mx.array:
         """
         Forward pass.

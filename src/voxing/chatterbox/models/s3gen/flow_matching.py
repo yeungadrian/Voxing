@@ -1,10 +1,9 @@
-# Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
+# Copyright (c) 2025, Prince Canuma and contributors
+# (https://github.com/Blaizzy/mlx-audio)
 
-from typing import Optional, Tuple
 
 import mlx.core as mx
 import mlx.nn as nn
-from tqdm import tqdm
 
 
 class ConditionalCFM(nn.Module):
@@ -22,7 +21,7 @@ class ConditionalCFM(nn.Module):
         t_scheduler: str = "cosine",
         inference_cfg_rate: float = 0.7,
         estimator: nn.Module | None = None,
-    ):
+    ) -> None:
         super().__init__()
         self.in_channels = in_channels
         self.sigma_min = sigma_min
@@ -36,11 +35,11 @@ class ConditionalCFM(nn.Module):
         mask: mx.array,
         n_timesteps: int,
         temperature: float = 1.0,
-        spks: Optional[mx.array] = None,
-        cond: Optional[mx.array] = None,
-        noised_mels: Optional[mx.array] = None,
+        spks: mx.array | None = None,
+        cond: mx.array | None = None,
+        noised_mels: mx.array | None = None,
         meanflow: bool = False,
-    ) -> Tuple[mx.array, None]:
+    ) -> tuple[mx.array, None]:
         """
         Forward diffusion/flow matching.
 
@@ -57,7 +56,7 @@ class ConditionalCFM(nn.Module):
         Returns:
             Generated mel-spectrogram (B, 80, T)
         """
-        B = mu.shape[0]
+        mu.shape[0]
 
         # Initialize with random noise
         z = mx.random.normal(mu.shape) * temperature
@@ -82,13 +81,13 @@ class ConditionalCFM(nn.Module):
         t_span: mx.array,
         mu: mx.array,
         mask: mx.array,
-        spks: Optional[mx.array],
-        cond: Optional[mx.array],
+        spks: mx.array | None,
+        cond: mx.array | None,
     ) -> mx.array:
         """Basic Euler solver without CFG (for meanflow distilled models)."""
         print("S3 Token -> Mel Inference...")
 
-        for i in tqdm(range(len(t_span) - 1)):
+        for i in range(len(t_span) - 1):
             t = t_span[i : i + 1]
             r = t_span[i + 1 : i + 2]
 
@@ -116,15 +115,15 @@ class ConditionalCFM(nn.Module):
         t_span: mx.array,
         mu: mx.array,
         mask: mx.array,
-        spks: Optional[mx.array],
-        cond: Optional[mx.array],
+        spks: mx.array | None,
+        cond: mx.array | None,
         meanflow: bool,
     ) -> mx.array:
         """Euler solver with classifier-free guidance."""
         B = mu.shape[0]
-        T = x.shape[2]
+        x.shape[2]
 
-        for i in tqdm(range(len(t_span) - 1), desc="CFM sampling"):
+        for i in range(len(t_span) - 1):
             t = t_span[i : i + 1]
             r = t_span[i + 1 : i + 2]
 
@@ -173,8 +172,25 @@ class ConditionalCFM(nn.Module):
 class CausalConditionalCFM(ConditionalCFM):
     """Causal version of Conditional CFM for streaming."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        in_channels: int = 240,
+        n_spks: int = 1,
+        spk_emb_dim: int = 80,
+        sigma_min: float = 1e-6,
+        t_scheduler: str = "cosine",
+        inference_cfg_rate: float = 0.7,
+        estimator: nn.Module | None = None,
+    ) -> None:
+        super().__init__(
+            in_channels=in_channels,
+            n_spks=n_spks,
+            spk_emb_dim=spk_emb_dim,
+            sigma_min=sigma_min,
+            t_scheduler=t_scheduler,
+            inference_cfg_rate=inference_cfg_rate,
+            estimator=estimator,
+        )
 
     def __call__(
         self,
@@ -182,13 +198,13 @@ class CausalConditionalCFM(ConditionalCFM):
         mask: mx.array,
         n_timesteps: int,
         temperature: float = 1.0,
-        spks: Optional[mx.array] = None,
-        cond: Optional[mx.array] = None,
-        noised_mels: Optional[mx.array] = None,
+        spks: mx.array | None = None,
+        cond: mx.array | None = None,
+        noised_mels: mx.array | None = None,
         meanflow: bool = False,
-    ) -> Tuple[mx.array, None]:
+    ) -> tuple[mx.array, None]:
         """Forward with meanflow mode for distilled models."""
-        B = mu.shape[0]
+        mu.shape[0]
 
         # Initialize with random noise
         z = mx.random.normal(mu.shape)

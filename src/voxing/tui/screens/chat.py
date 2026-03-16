@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import threading
 from collections.abc import Callable
 from typing import ClassVar
@@ -156,7 +158,7 @@ class ChatScreen(Screen[None]):
         self.shutdown_workers()
         self.app.exit()
 
-    _COMMANDS: ClassVar[dict[str, Callable[["ChatScreen"], None]]] = {
+    _COMMANDS: ClassVar[dict[str, Callable[[ChatScreen], None]]] = {
         "/clear": _handle_clear,
         "/settings": _handle_settings,
         "/transcribe": _handle_transcribe,

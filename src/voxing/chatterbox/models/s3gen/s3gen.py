@@ -1,19 +1,19 @@
-# Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
+# Copyright (c) 2025, Prince Canuma and contributors
+# (https://github.com/Blaizzy/mlx-audio)
 
 import logging
-from typing import Dict, Optional, Tuple
 
 import librosa
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 
-from .decoder import ConditionalDecoder
-from .encoder import UpsampleConformerEncoder
-from .flow_matching import CausalConditionalCFM
-from .hifigan import F0Predictor, HiFTGenerator
-from .mel import mel_spectrogram
-from .xvector import CAMPPlus
+from voxing.chatterbox.models.s3gen.decoder import ConditionalDecoder
+from voxing.chatterbox.models.s3gen.encoder import UpsampleConformerEncoder
+from voxing.chatterbox.models.s3gen.flow_matching import CausalConditionalCFM
+from voxing.chatterbox.models.s3gen.hifigan import F0Predictor, HiFTGenerator
+from voxing.chatterbox.models.s3gen.mel import mel_spectrogram
+from voxing.chatterbox.models.s3gen.xvector import CAMPPlus
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class S3Token2Mel(nn.Module):
     S3Gen's CFM decoder: maps S3 speech tokens to mel-spectrograms.
     """
 
-    def __init__(self, meanflow: bool = False):
+    def __init__(self, meanflow: bool = False) -> None:
         super().__init__()
         self.meanflow = meanflow
 
@@ -95,10 +95,10 @@ class S3Token2Mel(nn.Module):
         self,
         ref_wav: mx.array,
         ref_sr: int,
-        ref_speech_tokens: Optional[mx.array] = None,
-        ref_speech_token_lens: Optional[mx.array] = None,
+        ref_speech_tokens: mx.array | None = None,
+        ref_speech_token_lens: mx.array | None = None,
         device: str = "auto",
-    ) -> Dict[str, mx.array]:
+    ) -> dict[str, mx.array]:
         """
         Embed reference audio for speaker conditioning.
 
@@ -172,8 +172,8 @@ class S3Token2Mel(nn.Module):
     def __call__(
         self,
         speech_tokens: mx.array,
-        ref_dict: Dict[str, mx.array],
-        n_cfm_timesteps: Optional[int] = None,
+        ref_dict: dict[str, mx.array],
+        n_cfm_timesteps: int | None = None,
         finalize: bool = True,
     ) -> mx.array:
         """
@@ -265,9 +265,7 @@ class S3Token2Mel(nn.Module):
         )
 
         # Remove prompt portion
-        feat = feat[:, :, mel_len1:]
-
-        return feat
+        return feat[:, :, mel_len1:]
 
 
 class S3Token2Wav(S3Token2Mel):
@@ -276,7 +274,7 @@ class S3Token2Wav(S3Token2Mel):
     Combines token-to-mel (CFM) and mel-to-wav (HiFiGAN).
     """
 
-    def __init__(self, meanflow: bool = False):
+    def __init__(self, meanflow: bool = False) -> None:
         super().__init__(meanflow)
 
         # HiFiGAN vocoder
@@ -299,11 +297,11 @@ class S3Token2Wav(S3Token2Mel):
     def inference(
         self,
         speech_tokens: mx.array,
-        ref_dict: Optional[Dict[str, mx.array]] = None,
-        ref_wav: Optional[mx.array] = None,
-        ref_sr: Optional[int] = None,
-        n_cfm_timesteps: Optional[int] = None,
-    ) -> Tuple[mx.array, mx.array]:
+        ref_dict: dict[str, mx.array] | None = None,
+        ref_wav: mx.array | None = None,
+        ref_sr: int | None = None,
+        n_cfm_timesteps: int | None = None,
+    ) -> tuple[mx.array, mx.array]:
         """
         Full inference: speech tokens to waveform.
 
@@ -353,11 +351,11 @@ class S3Token2Wav(S3Token2Mel):
     def inference_stream(
         self,
         speech_tokens: mx.array,
-        ref_dict: Dict[str, mx.array],
-        n_cfm_timesteps: Optional[int] = None,
+        ref_dict: dict[str, mx.array],
+        n_cfm_timesteps: int | None = None,
         prev_audio_samples: int = 0,
         is_final: bool = False,
-    ) -> Tuple[mx.array, int]:
+    ) -> tuple[mx.array, int]:
         """
         Streaming inference: convert speech tokens to waveform for streaming.
 
@@ -450,15 +448,17 @@ class S3Token2Wav(S3Token2Mel):
                         # PyTorch format (O, I, H, W) with H==W: transpose
                         value = mx.array(np.array(value).transpose(0, 2, 3, 1))
                     # else: already in MLX format, skip transpose
-                elif value.ndim == 3:
-                    # Conv1d: (O, I, K) -> (O, K, I)
-                    # For pre-converted MLX models, Conv1d weights are already transposed.
-                    # PyTorch format has kernel at end: (O, I, K) where K is typically small (1-7)
-                    # Only transpose if last dim is a typical small kernel size (1-7)
-                    if value.shape[2] <= 7 and value.shape[1] > value.shape[2]:
-                        # PyTorch format with small kernel at end: transpose
-                        value = mx.array(np.array(value).transpose(0, 2, 1))
-                    # else: already in MLX format or ambiguous, skip transpose
+                # Conv1d: (O, I, K) -> (O, K, I)
+                # Pre-converted MLX models already transposed.
+                # PyTorch: (O, I, K) with small K (1-7).
+                # Only transpose if last dim is small kernel.
+                elif (
+                    value.ndim == 3
+                    and value.shape[2] <= 7
+                    and value.shape[1] > value.shape[2]
+                ):
+                    value = mx.array(np.array(value).transpose(0, 2, 1))
+                # else: already in MLX format, skip transpose
 
             new_weights[new_key] = value
 

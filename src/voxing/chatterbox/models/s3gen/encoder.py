@@ -1,6 +1,6 @@
-# Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
+# Copyright (c) 2025, Prince Canuma and contributors
+# (https://github.com/Blaizzy/mlx-audio)
 
-from typing import Optional, Tuple
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -15,7 +15,7 @@ class EspnetRelPositionalEncoding(nn.Module):
     See: https://arxiv.org/abs/1901.02860
     """
 
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000) -> None:
         super().__init__()
         self.d_model = d_model
         self.xscale = float(d_model) ** 0.5
@@ -24,7 +24,7 @@ class EspnetRelPositionalEncoding(nn.Module):
         # Initialize with a reasonable size
         self._extend_pe(max_len)
 
-    def _extend_pe(self, size: int):
+    def _extend_pe(self, size: int) -> None:
         """Create or extend positional encoding matrix."""
         if self.pe is not None and self.pe.shape[1] >= size * 2 - 1:
             return
@@ -59,7 +59,7 @@ class EspnetRelPositionalEncoding(nn.Module):
         pe = mx.concatenate([pe_positive_flipped, pe_negative_tail], axis=0)
         self.pe = pe[None, :, :]  # (1, 2*size-1, d_model)
 
-    def __call__(self, x: mx.array, offset: int = 0) -> Tuple[mx.array, mx.array]:
+    def __call__(self, x: mx.array, offset: int = 0) -> tuple[mx.array, mx.array]:
         """
         Args:
             x: Input tensor (B, T, D)
@@ -78,7 +78,7 @@ class EspnetRelPositionalEncoding(nn.Module):
 
         # Get positional embedding centered around current sequence
         # pe has shape (1, 2*max_len-1, d_model)
-        # We want positions from (max_len - T) to (max_len + T - 1), which is 2*T-1 positions
+        # Positions from (max_len-T) to (max_len+T-1): 2*T-1
         center = self.pe.shape[1] // 2
         pos_emb = self.pe[:, center - T + 1 : center + T, :]
 
@@ -91,7 +91,7 @@ class LinearInput(nn.Module):
     Matches PyTorch LinearNoSubsampling with EspnetRelPositionalEncoding.
     """
 
-    def __init__(self, input_size: int, output_size: int, dropout: float = 0.1):
+    def __init__(self, input_size: int, output_size: int, dropout: float = 0.1) -> None:
         super().__init__()
         self.linear = nn.Linear(input_size, output_size)
         self.norm = nn.LayerNorm(output_size, eps=1e-5)
@@ -99,7 +99,7 @@ class LinearInput(nn.Module):
 
     def __call__(
         self, x: mx.array, mask: mx.array
-    ) -> Tuple[mx.array, mx.array, mx.array]:
+    ) -> tuple[mx.array, mx.array, mx.array]:
         """
         Args:
             x: Input (B, T, D)
@@ -129,7 +129,7 @@ class RelPositionMultiHeadedAttention(nn.Module):
         n_feat: int,
         dropout_rate: float = 0.0,
         key_bias: bool = True,
-    ):
+    ) -> None:
         super().__init__()
         self.n_head = n_head
         self.d_k = n_feat // n_head
@@ -166,14 +166,13 @@ class RelPositionMultiHeadedAttention(nn.Module):
         x = x.reshape(B, n_head, T1, T2)
 
         # Keep only positions 0 to time1 (the valid relative positions)
-        x = x[:, :, :, : T2 // 2 + 1]
-        return x
+        return x[:, :, :, : T2 // 2 + 1]
 
     def __call__(
         self,
         x: mx.array,
-        mask: Optional[mx.array] = None,
-        pos_emb: Optional[mx.array] = None,
+        mask: mx.array | None = None,
+        pos_emb: mx.array | None = None,
     ) -> mx.array:
         """
         Args:
@@ -248,7 +247,7 @@ class PositionwiseFeedForward(nn.Module):
     Uses Swish (SiLU) activation as configured in the original model.
     """
 
-    def __init__(self, d_model: int, d_inner: int, dropout: float = 0.1):
+    def __init__(self, d_model: int, d_inner: int, dropout: float = 0.1) -> None:
         super().__init__()
         self.w_1 = nn.Linear(d_model, d_inner)
         self.w_2 = nn.Linear(d_inner, d_model)
@@ -272,7 +271,7 @@ class ConformerEncoderLayer(nn.Module):
         d_inner: int,
         dropout_rate: float = 0.1,
         key_bias: bool = True,
-    ):
+    ) -> None:
         super().__init__()
         # Use eps=1e-12 to match PyTorch
         self.norm_mha = nn.LayerNorm(size, eps=1e-12)
@@ -286,8 +285,8 @@ class ConformerEncoderLayer(nn.Module):
     def __call__(
         self,
         x: mx.array,
-        mask: Optional[mx.array] = None,
-        pos_emb: Optional[mx.array] = None,
+        mask: mx.array | None = None,
+        pos_emb: mx.array | None = None,
     ) -> mx.array:
         """
         Args:
@@ -306,15 +305,13 @@ class ConformerEncoderLayer(nn.Module):
         # Feed-forward with pre-norm and residual
         residual = x
         x = self.norm_ff(x)
-        x = residual + self.feed_forward(x)
-
-        return x
+        return residual + self.feed_forward(x)
 
 
 class PreLookaheadLayer(nn.Module):
     """Pre-lookahead convolution layer."""
 
-    def __init__(self, channels: int, pre_lookahead_len: int = 3):
+    def __init__(self, channels: int, pre_lookahead_len: int = 3) -> None:
         super().__init__()
         self.channels = channels
         self.pre_lookahead_len = pre_lookahead_len
@@ -358,7 +355,7 @@ class PreLookaheadLayer(nn.Module):
 class Upsample1DEncoder(nn.Module):
     """1D upsampling layer for encoder."""
 
-    def __init__(self, channels: int, stride: int = 2):
+    def __init__(self, channels: int, stride: int = 2) -> None:
         super().__init__()
         self.channels = channels
         self.stride = stride
@@ -366,7 +363,7 @@ class Upsample1DEncoder(nn.Module):
             channels, channels, kernel_size=stride * 2 + 1, stride=1, padding=0
         )
 
-    def __call__(self, x: mx.array, x_lens: mx.array) -> Tuple[mx.array, mx.array]:
+    def __call__(self, x: mx.array, x_lens: mx.array) -> tuple[mx.array, mx.array]:
         """
         Args:
             x: Input (B, T, C) - MLX format
@@ -402,7 +399,7 @@ class UpsampleConformerEncoder(nn.Module):
         linear_units: int = 2048,
         num_blocks: int = 6,
         dropout_rate: float = 0.1,
-    ):
+    ) -> None:
         super().__init__()
         self._output_size = output_size
 
@@ -444,7 +441,7 @@ class UpsampleConformerEncoder(nn.Module):
         self,
         xs: mx.array,
         xs_lens: mx.array,
-    ) -> Tuple[mx.array, mx.array]:
+    ) -> tuple[mx.array, mx.array]:
         """
         Args:
             xs: Input (B, T, D)

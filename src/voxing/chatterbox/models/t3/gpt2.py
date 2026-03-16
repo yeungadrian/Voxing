@@ -1,7 +1,6 @@
 # Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -17,7 +16,7 @@ class GPT2Config:
     n_embd: int = 1024
     n_layer: int = 24
     n_head: int = 16
-    n_inner: Optional[int] = None  # defaults to 4 * n_embd
+    n_inner: int | None = None  # defaults to 4 * n_embd
     activation_function: str = "gelu_new"
     resid_pdrop: float = 0.1
     embd_pdrop: float = 0.1
@@ -38,10 +37,7 @@ class GPT2Config:
 
 
 def gelu_new(x: mx.array) -> mx.array:
-    """
-    Implementation of the GELU activation function currently in Google BERT repo (identical to OpenAI GPT).
-    Also see the Gaussian Error Linear Units paper: https://arxiv.org/abs/1606.08415
-    """
+    """GELU activation (Google BERT / OpenAI GPT variant)."""
     return (
         0.5
         * x
@@ -52,7 +48,7 @@ def gelu_new(x: mx.array) -> mx.array:
 class GPT2Attention(nn.Module):
     """GPT2 multi-head attention."""
 
-    def __init__(self, config: GPT2Config):
+    def __init__(self, config: GPT2Config) -> None:
         super().__init__()
         self.embed_dim = config.n_embd
         self.num_heads = config.n_head
@@ -66,9 +62,9 @@ class GPT2Attention(nn.Module):
     def __call__(
         self,
         hidden_states: mx.array,
-        attention_mask: Optional[mx.array] = None,
-        cache: Optional[KVCache] = None,
-    ) -> Tuple[mx.array, Optional[KVCache]]:
+        attention_mask: mx.array | None = None,
+        cache: KVCache | None = None,
+    ) -> tuple[mx.array, KVCache | None]:
         B, T, C = hidden_states.shape
 
         # QKV projection
@@ -115,7 +111,7 @@ class GPT2Attention(nn.Module):
 class GPT2MLP(nn.Module):
     """GPT2 MLP (feed-forward) layer."""
 
-    def __init__(self, config: GPT2Config):
+    def __init__(self, config: GPT2Config) -> None:
         super().__init__()
         inner_dim = config.n_inner if config.n_inner is not None else 4 * config.n_embd
         self.c_fc = nn.Linear(config.n_embd, inner_dim)
@@ -124,14 +120,13 @@ class GPT2MLP(nn.Module):
     def __call__(self, x: mx.array) -> mx.array:
         x = self.c_fc(x)
         x = gelu_new(x)
-        x = self.c_proj(x)
-        return x
+        return self.c_proj(x)
 
 
 class GPT2Block(nn.Module):
     """GPT2 transformer block."""
 
-    def __init__(self, config: GPT2Config):
+    def __init__(self, config: GPT2Config) -> None:
         super().__init__()
         self.ln_1 = nn.LayerNorm(config.n_embd, eps=config.layer_norm_epsilon)
         self.attn = GPT2Attention(config)
@@ -141,9 +136,9 @@ class GPT2Block(nn.Module):
     def __call__(
         self,
         hidden_states: mx.array,
-        attention_mask: Optional[mx.array] = None,
-        cache: Optional[KVCache] = None,
-    ) -> Tuple[mx.array, Optional[KVCache]]:
+        attention_mask: mx.array | None = None,
+        cache: KVCache | None = None,
+    ) -> tuple[mx.array, KVCache | None]:
         # Self-attention
         residual = hidden_states
         hidden_states = self.ln_1(hidden_states)
@@ -165,7 +160,7 @@ class GPT2Block(nn.Module):
 class GPT2Model(nn.Module):
     """GPT2 base model (without LM head)."""
 
-    def __init__(self, config: GPT2Config):
+    def __init__(self, config: GPT2Config) -> None:
         super().__init__()
         self.config = config
 
@@ -181,17 +176,17 @@ class GPT2Model(nn.Module):
 
     def __call__(
         self,
-        input_ids: Optional[mx.array] = None,
-        inputs_embeds: Optional[mx.array] = None,
-        attention_mask: Optional[mx.array] = None,
-        cache: Optional[List[KVCache]] = None,
-    ) -> Tuple[mx.array, List[KVCache]]:
+        input_ids: mx.array | None = None,
+        inputs_embeds: mx.array | None = None,
+        attention_mask: mx.array | None = None,
+        cache: list[KVCache] | None = None,
+    ) -> tuple[mx.array, list[KVCache]]:
         """
         Forward pass of GPT2.
 
         Args:
             input_ids: Token IDs (B, T)
-            inputs_embeds: Pre-computed embeddings (B, T, D) - takes precedence over input_ids
+            inputs_embeds: Pre-computed embeddings (B, T, D)
             attention_mask: Optional attention mask
             cache: Optional list of KV caches for each layer
 

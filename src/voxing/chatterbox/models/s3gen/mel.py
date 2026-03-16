@@ -1,8 +1,8 @@
-# Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
+# Copyright (c) 2025, Prince Canuma and contributors
+# (https://github.com/Blaizzy/mlx-audio)
 
 import logging
 from functools import lru_cache
-from typing import Union
 
 import mlx.core as mx
 import numpy as np
@@ -49,7 +49,7 @@ def spectral_normalize(magnitudes: np.ndarray) -> np.ndarray:
 
 
 def mel_spectrogram(
-    y: Union[np.ndarray, mx.array],
+    y: np.ndarray | mx.array,
     n_fft: int = 1920,
     num_mels: int = 80,
     sampling_rate: int = 24000,
@@ -87,7 +87,8 @@ def mel_spectrogram(
     max_val = np.max(y)
     if min_val < -1.0 or max_val > 1.0:
         logger.warning(
-            f"Audio values outside normalized range: min={min_val:.4f}, max={max_val:.4f}"
+            f"Audio values outside normalized range: "
+            f"min={min_val:.4f}, max={max_val:.4f}"
         )
 
     # Get mel basis and window

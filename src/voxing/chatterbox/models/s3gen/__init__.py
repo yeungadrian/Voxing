@@ -1,11 +1,11 @@
 # Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
 
-from .decoder import ConditionalDecoder
-from .encoder import UpsampleConformerEncoder
-from .flow_matching import CausalConditionalCFM
-from .hifigan import HiFTGenerator
-from .mel import mel_spectrogram
-from .s3gen import (
+from voxing.chatterbox.models.s3gen.decoder import ConditionalDecoder
+from voxing.chatterbox.models.s3gen.encoder import UpsampleConformerEncoder
+from voxing.chatterbox.models.s3gen.flow_matching import CausalConditionalCFM
+from voxing.chatterbox.models.s3gen.hifigan import HiFTGenerator
+from voxing.chatterbox.models.s3gen.mel import mel_spectrogram
+from voxing.chatterbox.models.s3gen.s3gen import (
     S3GEN_SIL,
     S3GEN_SR,
     SPEECH_VOCAB_SIZE,

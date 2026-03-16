@@ -1,6 +1,5 @@
 # Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
 
-from typing import Dict, List, Optional, Tuple
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -27,7 +26,7 @@ class Conv1dPT(nn.Module):
         stride: int = 1,
         padding: int = 0,
         dilation: int = 1,
-    ):
+    ) -> None:
         super().__init__()
         self.conv = nn.Conv1d(
             in_channels,
@@ -58,7 +57,7 @@ class ConvTranspose1dPT(nn.Module):
         kernel_size: int,
         stride: int = 1,
         padding: int = 0,
-    ):
+    ) -> None:
         super().__init__()
         self.conv = nn.ConvTranspose1d(
             in_channels, out_channels, kernel_size, stride=stride, padding=padding
@@ -73,14 +72,13 @@ class ConvTranspose1dPT(nn.Module):
 
 
 class Snake(nn.Module):
-
     def __init__(
         self,
         in_features: int,
         alpha: float = 1.0,
         alpha_trainable: bool = True,
         alpha_logscale: bool = False,
-    ):
+    ) -> None:
         super().__init__()
         self.in_features = in_features
         self.alpha_logscale = alpha_logscale
@@ -119,8 +117,10 @@ class ResBlock(nn.Module):
         self,
         channels: int = 512,
         kernel_size: int = 3,
-        dilations: List[int] = [1, 3, 5],
-    ):
+        dilations: list[int] | None = None,
+    ) -> None:
+        if dilations is None:
+            dilations = [1, 3, 5]
         super().__init__()
 
         self.convs1 = []
@@ -145,7 +145,7 @@ class ResBlock(nn.Module):
 
     def __call__(self, x: mx.array) -> mx.array:
         for conv1, conv2, act1, act2 in zip(
-            self.convs1, self.convs2, self.activations1, self.activations2
+            self.convs1, self.convs2, self.activations1, self.activations2, strict=False
         ):
             xt = act1(x)
             xt = conv1(xt)
@@ -165,7 +165,7 @@ class SineGen(nn.Module):
         sine_amp: float = 0.1,
         noise_std: float = 0.003,
         voiced_threshold: float = 0,
-    ):
+    ) -> None:
         super().__init__()
         self.sine_amp = sine_amp
         self.noise_std = noise_std
@@ -173,7 +173,7 @@ class SineGen(nn.Module):
         self.sampling_rate = samp_rate
         self.voiced_threshold = voiced_threshold
 
-    def __call__(self, f0: mx.array) -> Tuple[mx.array, mx.array, mx.array]:
+    def __call__(self, f0: mx.array) -> tuple[mx.array, mx.array, mx.array]:
         """
         Generate sine waveform from F0.
 
@@ -233,7 +233,7 @@ class SourceModule(nn.Module):
         sine_amp: float = 0.1,
         add_noise_std: float = 0.003,
         voiced_threshold: float = 10,
-    ):
+    ) -> None:
         super().__init__()
         self.sine_amp = sine_amp
         self.noise_std = add_noise_std
@@ -245,7 +245,7 @@ class SourceModule(nn.Module):
         # Linear layer to merge harmonics
         self.l_linear = nn.Linear(harmonic_num + 1, 1)
 
-    def __call__(self, f0: mx.array) -> Tuple[mx.array, mx.array, mx.array]:
+    def __call__(self, f0: mx.array) -> tuple[mx.array, mx.array, mx.array]:
         """
         Args:
             f0: F0 input (B, T, 1)
@@ -277,7 +277,7 @@ def elu(x: mx.array, alpha: float = 1.0) -> mx.array:
 class F0Predictor(nn.Module):
     """
     F0 predictor from mel-spectrogram.
-    Matches PyTorch ConvRNNF0Predictor structure with condnet (5 conv layers with ELU) + classifier.
+    Matches PyTorch ConvRNNF0Predictor with condnet + classifier.
 
     The classifier outputs values that are made non-negative with abs().
     The model predicts F0 in Hz directly (no scaling needed).
@@ -285,7 +285,7 @@ class F0Predictor(nn.Module):
 
     def __init__(
         self, in_channels: int = 80, hidden_channels: int = 512, num_layers: int = 5
-    ):
+    ) -> None:
         super().__init__()
 
         # condnet is a list of Conv layers (indices 0, 2, 4, 6, 8 in PyTorch Sequential)
@@ -319,9 +319,7 @@ class F0Predictor(nn.Module):
         f0 = f0[:, :, 0]  # (B, T)
 
         # Apply abs() to ensure non-negative - model outputs F0 in Hz directly
-        f0 = mx.abs(f0)
-
-        return f0
+        return mx.abs(f0)
 
 
 class HiFTGenerator(nn.Module):
@@ -339,19 +337,29 @@ class HiFTGenerator(nn.Module):
         nsf_alpha: float = 0.1,
         nsf_sigma: float = 0.003,
         nsf_voiced_threshold: float = 10,
-        upsample_rates: List[int] = [8, 5, 3],
-        upsample_kernel_sizes: List[int] = [16, 11, 7],
-        resblock_kernel_sizes: List[int] = [3, 7, 11],
-        resblock_dilation_sizes: List[List[int]] = [[1, 3, 5], [1, 3, 5], [1, 3, 5]],
-        source_resblock_kernel_sizes: List[int] = [7, 7, 11],
-        source_resblock_dilation_sizes: List[List[int]] = [
-            [1, 3, 5],
-            [1, 3, 5],
-            [1, 3, 5],
-        ],
-        istft_params: Dict[str, int] = {"n_fft": 16, "hop_len": 4},
-        f0_predictor: Optional[nn.Module] = None,
-    ):
+        upsample_rates: list[int] | None = None,
+        upsample_kernel_sizes: list[int] | None = None,
+        resblock_kernel_sizes: list[int] | None = None,
+        resblock_dilation_sizes: list[list[int]] | None = None,
+        source_resblock_kernel_sizes: list[int] | None = None,
+        source_resblock_dilation_sizes: list[list[int]] | None = None,
+        istft_params: dict[str, int] | None = None,
+        f0_predictor: nn.Module | None = None,
+    ) -> None:
+        if istft_params is None:
+            istft_params = {"n_fft": 16, "hop_len": 4}
+        if source_resblock_dilation_sizes is None:
+            source_resblock_dilation_sizes = [[1, 3, 5], [1, 3, 5], [1, 3, 5]]
+        if source_resblock_kernel_sizes is None:
+            source_resblock_kernel_sizes = [7, 7, 11]
+        if resblock_dilation_sizes is None:
+            resblock_dilation_sizes = [[1, 3, 5], [1, 3, 5], [1, 3, 5]]
+        if resblock_kernel_sizes is None:
+            resblock_kernel_sizes = [3, 7, 11]
+        if upsample_kernel_sizes is None:
+            upsample_kernel_sizes = [16, 11, 7]
+        if upsample_rates is None:
+            upsample_rates = [8, 5, 3]
         super().__init__()
 
         self.sampling_rate = sampling_rate
@@ -383,7 +391,9 @@ class HiFTGenerator(nn.Module):
         # Upsampling layers
         self.ups = []
         ch = base_channels
-        for i, (u, k) in enumerate(zip(upsample_rates, upsample_kernel_sizes)):
+        for i, (u, k) in enumerate(
+            zip(upsample_rates, upsample_kernel_sizes, strict=False)
+        ):
             self.ups.append(
                 ConvTranspose1dPT(
                     ch // (2**i),
@@ -405,6 +415,7 @@ class HiFTGenerator(nn.Module):
                 downsample_cum[::-1],
                 source_resblock_kernel_sizes,
                 source_resblock_dilation_sizes,
+                strict=False,
             )
         ):
             out_ch = ch // (2 ** (i + 1))
@@ -428,7 +439,9 @@ class HiFTGenerator(nn.Module):
         self.resblocks = []
         for i in range(len(self.ups)):
             res_ch = ch // (2 ** (i + 1))
-            for k, d in zip(resblock_kernel_sizes, resblock_dilation_sizes):
+            for k, d in zip(
+                resblock_kernel_sizes, resblock_dilation_sizes, strict=False
+            ):
                 self.resblocks.append(ResBlock(res_ch, k, d))
 
         # Final conv
@@ -446,10 +459,9 @@ class HiFTGenerator(nn.Module):
         """Upsample F0 using repeat."""
         # f0: (B, T) -> (B, T * scale)
         f0 = f0[:, :, None]  # (B, T, 1)
-        f0 = mx.repeat(f0, self.f0_upsample_scale, axis=1)  # (B, T*scale, 1)
-        return f0
+        return mx.repeat(f0, self.f0_upsample_scale, axis=1)  # (B, T*scale, 1)
 
-    def _stft(self, x: mx.array) -> Tuple[mx.array, mx.array]:
+    def _stft(self, x: mx.array) -> tuple[mx.array, mx.array]:
         """
         Compute STFT using numpy for efficiency.
 
@@ -614,11 +626,9 @@ class HiFTGenerator(nn.Module):
 
         # ISTFT
         audio = self._istft(magnitude, phase)
-        audio = mx.clip(audio, -self.audio_limit, self.audio_limit)
+        return mx.clip(audio, -self.audio_limit, self.audio_limit)
 
-        return audio
-
-    def __call__(self, mel: mx.array) -> Tuple[mx.array, mx.array]:
+    def __call__(self, mel: mx.array) -> tuple[mx.array, mx.array]:
         """
         Generate waveform from mel-spectrogram.
 
@@ -647,8 +657,8 @@ class HiFTGenerator(nn.Module):
     def inference(
         self,
         speech_feat: mx.array,
-        cache_source: Optional[mx.array] = None,
-    ) -> Tuple[mx.array, mx.array]:
+        cache_source: mx.array | None = None,
+    ) -> tuple[mx.array, mx.array]:
         """
         Inference function matching original API.
 

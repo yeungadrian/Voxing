@@ -6,11 +6,11 @@ import librosa
 import numpy as np
 from scipy import signal
 
-from .config import VoiceEncConfig
+from voxing.chatterbox.models.voice_encoder.config import VoiceEncConfig
 
 
-@lru_cache()
-def mel_basis(hp: VoiceEncConfig):
+@lru_cache
+def mel_basis(hp: VoiceEncConfig) -> np.ndarray:
     assert hp.fmax <= hp.sample_rate // 2
     return librosa.filters.mel(
         sr=hp.sample_rate,
@@ -21,14 +21,13 @@ def mel_basis(hp: VoiceEncConfig):
     )  # -> (nmel, nfreq)
 
 
-def preemphasis(wav, hp: VoiceEncConfig):
+def preemphasis(wav: np.ndarray, hp: VoiceEncConfig) -> np.ndarray:
     assert hp.preemphasis != 0
     wav = signal.lfilter([1, -hp.preemphasis], [1], wav)
-    wav = np.clip(wav, -1, 1)
-    return wav
+    return np.clip(wav, -1, 1)
 
 
-def melspectrogram(wav, hp: VoiceEncConfig, pad=True):
+def melspectrogram(wav: np.ndarray, hp: VoiceEncConfig, pad: bool = True) -> np.ndarray:
     """Compute mel-spectrogram from waveform."""
     # Run through pre-emphasis
     if hp.preemphasis > 0:
@@ -57,7 +56,7 @@ def melspectrogram(wav, hp: VoiceEncConfig, pad=True):
     return mel  # (M, T)
 
 
-def _stft(y, hp: VoiceEncConfig, pad=True):
+def _stft(y: np.ndarray, hp: VoiceEncConfig, pad: bool = True) -> np.ndarray:
     return librosa.stft(
         y,
         n_fft=hp.n_fft,
@@ -68,15 +67,18 @@ def _stft(y, hp: VoiceEncConfig, pad=True):
     )
 
 
-def _amp_to_db(x, hp: VoiceEncConfig):
+def _amp_to_db(x: np.ndarray, hp: VoiceEncConfig) -> np.ndarray:
     return 20 * np.log10(np.maximum(hp.stft_magnitude_min, x))
 
 
-def _db_to_amp(x):
+def _db_to_amp(x: np.ndarray) -> np.ndarray:
     return np.power(10.0, x * 0.05)
 
 
-def _normalize(s, hp: VoiceEncConfig, headroom_db=15):
+def _normalize(
+    s: np.ndarray,
+    hp: VoiceEncConfig,
+    headroom_db: float = 15,
+) -> np.ndarray:
     min_level_db = 20 * np.log10(hp.stft_magnitude_min)
-    s = (s - min_level_db) / (-min_level_db + headroom_db)
-    return s
+    return (s - min_level_db) / (-min_level_db + headroom_db)

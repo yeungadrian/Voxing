@@ -6,8 +6,9 @@ import json
 import logging
 import re
 import time
+from collections.abc import Generator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generator
+from typing import TYPE_CHECKING
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -15,18 +16,16 @@ import numpy as np
 
 from voxing._download import _resolve_model_path
 from voxing.chatterbox._base import GenerationResult
-
-from .models.s3gen import S3GEN_SIL, S3GEN_SR, S3Gen
-from .models.t3 import T3, T3Cond, T3Config
-from .models.voice_encoder import VoiceEncoder
+from voxing.chatterbox.models.s3gen import S3GEN_SIL, S3GEN_SR, S3Gen
+from voxing.chatterbox.models.t3 import T3, T3Cond, T3Config
+from voxing.chatterbox.models.voice_encoder import VoiceEncoder
 
 if TYPE_CHECKING:
-    from transformers import PreTrainedTokenizerBase
+    from transformers import PreTrainedTokenizerBase, PreTrainedTokenizerFast
 
 logger = logging.getLogger(__name__)
 
 S3_SR = 16000
-REPO_ID = "ResembleAI/chatterbox-turbo"
 
 
 def punc_norm(text: str) -> str:
@@ -66,7 +65,7 @@ class Conditionals:
     """Conditionals for T3 and S3Gen."""
 
     t3: T3Cond
-    gen: dict
+    gen: dict[str, mx.array]
 
 
 class ChatterboxTurboTTS(nn.Module):
@@ -77,16 +76,16 @@ class ChatterboxTurboTTS(nn.Module):
 
     def __init__(
         self,
-        config: dict | None = None,
-    ):
+        config: dict[str, object] | None = None,
+    ) -> None:
         super().__init__()
         self.sr = S3GEN_SR
-        self.config = config or {}
+        self.config: dict[str, object] = config or {}
         hp = T3Config.turbo()
         self.t3 = T3(hp)
         self.s3gen = S3Gen(meanflow=True)
         self.ve = VoiceEncoder()
-        self.tokenizer: PreTrainedTokenizerBase | None = None
+        self.tokenizer: PreTrainedTokenizerFast | PreTrainedTokenizerBase | None = None
         self._conds: Conditionals | None = None
 
     @property
@@ -94,7 +93,7 @@ class ChatterboxTurboTTS(nn.Module):
         """Output sample rate."""
         return self.sr
 
-    def sanitize(self, weights: dict) -> dict:
+    def sanitize(self, weights: dict[str, mx.array]) -> dict[str, mx.array]:
         """Sanitize PyTorch weights for MLX."""
         new_weights: dict[str, mx.array] = {}
 
@@ -128,7 +127,11 @@ class ChatterboxTurboTTS(nn.Module):
 
         return new_weights
 
-    def load_weights(self, weights: list | dict, strict: bool = True) -> None:  # type: ignore[override]
+    def load_weights(  # type: ignore[override]
+        self,
+        weights: list[tuple[str, mx.array]] | dict[str, mx.array],
+        strict: bool = True,
+    ) -> None:
         """Load weights into the model."""
         if isinstance(weights, dict):
             weights = list(weights.items())
@@ -168,7 +171,7 @@ class ChatterboxTurboTTS(nn.Module):
         temperature: float = 0.8,
         top_k: int = 1000,
         max_tokens: int = 800,
-    ) -> Generator[GenerationResult, None, None]:
+    ) -> Generator[GenerationResult]:
         """Generate speech from text using pre-loaded conditionals."""
         assert self._conds is not None, "No conditionals loaded"
 
@@ -206,11 +209,10 @@ class ChatterboxTurboTTS(nn.Module):
         start_time = time.time()
         total_token_count = 0
         total_samples = 0
-        segment_idx = 0
 
         mx.clear_cache()
 
-        for chunk in chunks:
+        for segment_idx, chunk in enumerate(chunks):
             if self.tokenizer is not None:
                 text_tokens = self.tokenizer(
                     chunk, return_tensors="np", padding=True, truncation=True
@@ -260,7 +262,10 @@ class ChatterboxTurboTTS(nn.Module):
             duration_mins = int((audio_duration_seconds % 3600) // 60)
             duration_secs = int(audio_duration_seconds % 60)
             duration_ms = int((audio_duration_seconds % 1) * 1000)
-            duration_str = f"{duration_hours:02d}:{duration_mins:02d}:{duration_secs:02d}.{duration_ms:03d}"
+            duration_str = (
+                f"{duration_hours:02d}:{duration_mins:02d}"
+                f":{duration_secs:02d}.{duration_ms:03d}"
+            )
 
             total_audio_duration = total_samples / self.sample_rate
             rtf = (
@@ -297,7 +302,6 @@ class ChatterboxTurboTTS(nn.Module):
                 peak_memory_usage=mx.get_peak_memory() / 1e9,
             )
 
-            segment_idx += 1
             mx.clear_cache()
 
 
@@ -333,7 +337,9 @@ def load_model(model_id: str) -> ChatterboxTurboTTS:
     # Load text tokenizer
     from transformers import AutoTokenizer
 
-    tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(str(model_path))  # type: ignore[assignment]
+    tokenizer = AutoTokenizer.from_pretrained(str(model_path))
+    if tokenizer is None:
+        raise RuntimeError(f"Failed to load tokenizer from {model_path}")
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     model.tokenizer = tokenizer

@@ -1,4 +1,5 @@
-# Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
+# Copyright (c) 2025, Prince Canuma and contributors
+# (https://github.com/Blaizzy/mlx-audio)
 # Adapted from FunASR (https://github.com/alibaba-damo-academy/FunASR)
 # MIT License
 
@@ -7,15 +8,12 @@ CAMPPlus speaker encoder for x-vector extraction.
 Used for speaker conditioning in S3Gen.
 """
 
-from collections import OrderedDict
-from typing import List, Tuple
-
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 
 
-def pad_list(xs: List[mx.array], pad_value: float = 0) -> mx.array:
+def pad_list(xs: list[mx.array], pad_value: float = 0) -> mx.array:
     """Pad list of tensors to same length."""
     n_batch = len(xs)
     max_len = max(x.shape[0] for x in xs)
@@ -26,7 +24,7 @@ def pad_list(xs: List[mx.array], pad_value: float = 0) -> mx.array:
 
     for i, x in enumerate(xs):
         # Use slice assignment
-        indices = mx.arange(x.shape[0])
+        mx.arange(x.shape[0])
         pad = pad.at[i, : x.shape[0]].set(x)  # type: ignore[union-attr]
 
     return pad
@@ -244,7 +242,7 @@ class BasicResBlock(nn.Module):
 
     expansion = 1
 
-    def __init__(self, in_planes: int, planes: int, stride: int = 1):
+    def __init__(self, in_planes: int, planes: int, stride: int = 1) -> None:
         super().__init__()
         self.conv1 = nn.Conv2d(
             in_planes, planes, kernel_size=3, stride=(stride, 1), padding=1, bias=False
@@ -271,20 +269,16 @@ class BasicResBlock(nn.Module):
         out = nn.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
 
-        if self.use_shortcut:
-            shortcut = self.shortcut_bn(self.shortcut_conv(x))
-        else:
-            shortcut = x
+        shortcut = self.shortcut_bn(self.shortcut_conv(x)) if self.use_shortcut else x
 
         out = out + shortcut
-        out = nn.relu(out)
-        return out
+        return nn.relu(out)
 
 
 class FCM(nn.Module):
     """Feature Convolutional Module for CAMPPlus."""
 
-    def __init__(self, m_channels: int = 32, feat_dim: int = 80):
+    def __init__(self, m_channels: int = 32, feat_dim: int = 80) -> None:
         super().__init__()
         self.in_planes = m_channels
 
@@ -331,9 +325,7 @@ class FCM(nn.Module):
         # out shape: (B, F/8, T, C) in NHWC
         # Reshape to: (B, C * F/8, T)
         B, F_reduced, T, C = out.shape
-        out = out.transpose(0, 3, 1, 2).reshape(B, C * F_reduced, T)
-
-        return out
+        return out.transpose(0, 3, 1, 2).reshape(B, C * F_reduced, T)
 
 
 class TDNNLayer(nn.Module):
@@ -348,7 +340,7 @@ class TDNNLayer(nn.Module):
         padding: int = 0,
         dilation: int = 1,
         bias: bool = False,
-    ):
+    ) -> None:
         super().__init__()
         if padding < 0:
             assert kernel_size % 2 == 1
@@ -370,8 +362,7 @@ class TDNNLayer(nn.Module):
         x = self.linear(x)  # MLX Conv1d: (B, T, C) -> (B, T', C')
         x = self.bn(x)
         x = nn.relu(x)
-        x = x.transpose(0, 2, 1)  # Back to (B, C', T')
-        return x
+        return x.transpose(0, 2, 1)  # Back to (B, C', T')
 
 
 class CAMLayer(nn.Module):
@@ -387,7 +378,7 @@ class CAMLayer(nn.Module):
         dilation: int,
         bias: bool,
         reduction: int = 2,
-    ):
+    ) -> None:
         super().__init__()
         self.linear_local = nn.Conv1d(
             bn_channels,
@@ -451,7 +442,7 @@ class CAMDenseTDNNLayer(nn.Module):
         stride: int = 1,
         dilation: int = 1,
         bias: bool = False,
-    ):
+    ) -> None:
         super().__init__()
         assert kernel_size % 2 == 1
         padding = (kernel_size - 1) // 2 * dilation
@@ -483,8 +474,7 @@ class CAMDenseTDNNLayer(nn.Module):
 
         # Convert back to (B, C, T) for CAMLayer
         x = x.transpose(0, 2, 1)
-        x = self.cam_layer(x)
-        return x
+        return self.cam_layer(x)
 
 
 class CAMDenseTDNNBlock(nn.Module):
@@ -500,7 +490,7 @@ class CAMDenseTDNNBlock(nn.Module):
         stride: int = 1,
         dilation: int = 1,
         bias: bool = False,
-    ):
+    ) -> None:
         super().__init__()
         self.layers = []
         for i in range(num_layers):
@@ -524,7 +514,7 @@ class CAMDenseTDNNBlock(nn.Module):
 class TransitLayer(nn.Module):
     """Transition layer between blocks."""
 
-    def __init__(self, in_channels: int, out_channels: int, bias: bool = True):
+    def __init__(self, in_channels: int, out_channels: int, bias: bool = True) -> None:
         super().__init__()
         self.bn = nn.BatchNorm(in_channels)
         self.linear = nn.Conv1d(in_channels, out_channels, 1, bias=bias)
@@ -535,8 +525,7 @@ class TransitLayer(nn.Module):
         x = self.bn(x)
         x = nn.relu(x)
         x = self.linear(x)  # MLX Conv1d expects (B, T, C)
-        x = x.transpose(0, 2, 1)  # Back to (B, C, T)
-        return x
+        return x.transpose(0, 2, 1)  # Back to (B, C, T)
 
 
 class StatsPool(nn.Module):
@@ -552,7 +541,7 @@ class StatsPool(nn.Module):
 class DenseLayer(nn.Module):
     """Dense layer with batch normalization."""
 
-    def __init__(self, in_channels: int, out_channels: int, bias: bool = False):
+    def __init__(self, in_channels: int, out_channels: int, bias: bool = False) -> None:
         super().__init__()
         self.linear = nn.Conv1d(in_channels, out_channels, 1, bias=bias)
         self.bn = nn.BatchNorm(out_channels, affine=False)
@@ -595,7 +584,7 @@ class CAMPPlus(nn.Module):
         growth_rate: int = 32,
         bn_size: int = 4,
         init_channels: int = 128,
-    ):
+    ) -> None:
         super().__init__()
 
         self.head = FCM(feat_dim=feat_dim)
@@ -617,7 +606,7 @@ class CAMPPlus(nn.Module):
         self.blocks = []
         self.transits = []
 
-        for i, (num_layers, kernel_size, dilation) in enumerate(block_configs):
+        for _i, (num_layers, kernel_size, dilation) in enumerate(block_configs):
             block = CAMDenseTDNNBlock(
                 num_layers=num_layers,
                 in_channels=channels,
@@ -655,7 +644,7 @@ class CAMPPlus(nn.Module):
         x = self.tdnn(x)
 
         # CAM Dense blocks with transit layers
-        for block, transit in zip(self.blocks, self.transits):
+        for block, transit in zip(self.blocks, self.transits, strict=False):
             x = block(x)
             x = transit(x)
 
@@ -666,11 +655,9 @@ class CAMPPlus(nn.Module):
         x = x_t.transpose(0, 2, 1)
 
         x = self.stats(x)
-        x = self.dense(x)
+        return self.dense(x)
 
-        return x
-
-    def inference(self, audio_list: List[mx.array]) -> mx.array:
+    def inference(self, audio_list: list[mx.array]) -> mx.array:
         """
         Extract speaker embeddings from audio.
 
@@ -762,9 +749,13 @@ class CAMPPlus(nn.Module):
                     if value.shape[2] == value.shape[3]:
                         value = mx.array(np.array(value).transpose(0, 2, 3, 1))
 
-                elif value.ndim == 3:
-                    if value.shape[2] <= 7 and value.shape[1] > value.shape[2]:
-                        value = mx.array(np.array(value).transpose(0, 2, 1))
+                # Conv1d: transpose if small kernel at end
+                elif (
+                    value.ndim == 3
+                    and value.shape[2] <= 7
+                    and value.shape[1] > value.shape[2]
+                ):
+                    value = mx.array(np.array(value).transpose(0, 2, 1))
 
             new_weights[new_key] = value
 

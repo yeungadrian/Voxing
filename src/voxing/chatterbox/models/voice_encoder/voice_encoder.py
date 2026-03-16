@@ -1,6 +1,6 @@
-# Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
+# Copyright (c) 2025, Prince Canuma and contributors
+# https://github.com/Blaizzy/mlx-audio
 
-from typing import List, Optional, Union
 
 import librosa
 import mlx.core as mx
@@ -8,11 +8,15 @@ import mlx.nn as nn
 import numpy as np
 from numpy.lib.stride_tricks import as_strided
 
-from .config import VoiceEncConfig
-from .melspec import melspectrogram
+from voxing.chatterbox.models.voice_encoder.config import VoiceEncConfig
+from voxing.chatterbox.models.voice_encoder.melspec import melspectrogram
 
 
-def pack(arrays, seq_len: int | None = None, pad_value=0):
+def pack(
+    arrays: list[np.ndarray],
+    seq_len: int | None = None,
+    pad_value: float = 0,
+) -> mx.array:
     """
     Given a list of arrays, packs them into a single array by padding.
     """
@@ -40,7 +44,7 @@ def get_num_wins(
     step: int,
     min_coverage: float,
     hp: VoiceEncConfig,
-):
+) -> tuple[int, int]:
     assert n_frames > 0
     win_size = hp.ve_partial_frames
     n_wins, remainder = divmod(max(n_frames - win_size + step, 0), step)
@@ -54,7 +58,7 @@ def get_frame_step(
     overlap: float,
     rate: float | None,
     hp: VoiceEncConfig,
-):
+) -> int:
     assert 0 <= overlap < 1
     if rate is None:
         frame_step = int(np.round(hp.ve_partial_frames * (1 - overlap)))
@@ -67,10 +71,10 @@ def get_frame_step(
 def stride_as_partials(
     mel: np.ndarray,
     hp: VoiceEncConfig,
-    overlap=0.5,
+    overlap: float = 0.5,
     rate: float | None = None,
-    min_coverage=0.8,
-):
+    min_coverage: float = 0.8,
+) -> np.ndarray:
     """
     Takes unscaled mels in (T, M) format and creates overlapping partials.
     """
@@ -92,8 +96,7 @@ def stride_as_partials(
     # Re-arrange the array in memory to be of shape (N, P, M) with partials overlapping
     shape = (n_partials, hp.ve_partial_frames, hp.num_mels)
     strides = (mel.strides[0] * frame_step, mel.strides[0], mel.strides[1])
-    partials = as_strided(mel, shape, strides)
-    return partials
+    return as_strided(mel, shape, strides)
 
 
 class VoiceEncoder(nn.Module):
@@ -101,13 +104,13 @@ class VoiceEncoder(nn.Module):
     LSTM-based voice encoder for speaker embeddings.
     """
 
-    def __init__(self, hp: VoiceEncConfig | None = None):
+    def __init__(self, hp: VoiceEncConfig | None = None) -> None:
         super().__init__()
         if hp is None:
             hp = VoiceEncConfig()
         self.hp = hp
 
-        # LSTM layers (3 layers stacked manually since MLX LSTM doesn't support num_layers)
+        # Stacked LSTM layers (MLX lacks num_layers)
         self.lstm1 = nn.LSTM(
             input_size=hp.num_mels,
             hidden_size=hp.ve_hidden_size,
@@ -170,7 +173,7 @@ class VoiceEncoder(nn.Module):
     def inference(
         self,
         mels: mx.array,
-        mel_lens: List[int],
+        mel_lens: list[int],
         overlap: float = 0.5,
         rate: float | None = None,
         min_coverage: float = 0.8,
@@ -206,7 +209,7 @@ class VoiceEncoder(nn.Module):
 
         # Group all partials together
         partials = []
-        for mel, n_partial in zip(mels_np, n_partials_list):
+        for mel, n_partial in zip(mels_np, n_partials_list, strict=False):
             for i in range(n_partial):
                 start = i * frame_step
                 end = start + self.hp.ve_partial_frames
@@ -229,7 +232,7 @@ class VoiceEncoder(nn.Module):
         # Reduce the partial embeds into full embeds
         slices = np.concatenate(([0], np.cumsum(n_partials_list)))
         raw_embeds = []
-        for start, end in zip(slices[:-1], slices[1:]):
+        for start, end in zip(slices[:-1], slices[1:], strict=False):
             # Convert numpy integers to Python integers for MLX slicing
             mean_embed = mx.mean(partial_embeds[int(start) : int(end)], axis=0)
             raw_embeds.append(mean_embed)
@@ -237,9 +240,7 @@ class VoiceEncoder(nn.Module):
 
         # L2 normalize
         norm = mx.linalg.norm(raw_embeds, axis=1, keepdims=True)
-        embeds = raw_embeds / (norm + 1e-8)
-
-        return embeds
+        return raw_embeds / (norm + 1e-8)
 
     @staticmethod
     def utt_to_spk_embed(utt_embeds: np.ndarray) -> np.ndarray:
@@ -253,42 +254,47 @@ class VoiceEncoder(nn.Module):
 
     def embeds_from_mels(
         self,
-        mels: Union[mx.array, List[np.ndarray]],
-        mel_lens: Optional[List[int]] = None,
+        mels: mx.array | list[np.ndarray],
+        mel_lens: list[int] | None = None,
         as_spk: bool = False,
         batch_size: int = 32,
-        **kwargs,
+        overlap: float = 0.5,
+        rate: float | None = None,
+        min_coverage: float = 0.8,
     ) -> np.ndarray:
-        """
-        Convenience function for deriving utterance or speaker embeddings from mel spectrograms.
-        """
+        """Derive utterance or speaker embeddings from mels."""
         # Load mels in memory and pack them
         if isinstance(mels, list):
             mels = [np.asarray(mel) for mel in mels]
-            assert all(
-                m.shape[1] == mels[0].shape[1] for m in mels
-            ), "Mels aren't in (B, T, M) format"
+            assert all(m.shape[1] == mels[0].shape[1] for m in mels), (
+                "Mels aren't in (B, T, M) format"
+            )
             mel_lens = [mel.shape[0] for mel in mels]
             mels = pack(mels)
 
-        # Embed them
-        utt_embeds = self.inference(mels, mel_lens, batch_size=batch_size, **kwargs)  # type: ignore[arg-type]
+        assert mel_lens is not None
+        utt_embeds = self.inference(
+            mels,
+            mel_lens,
+            batch_size=batch_size,
+            overlap=overlap,
+            rate=rate,
+            min_coverage=min_coverage,
+        )
         utt_embeds = np.array(utt_embeds)
 
         return self.utt_to_spk_embed(utt_embeds) if as_spk else utt_embeds
 
     def embeds_from_wavs(
         self,
-        wavs: List[np.ndarray],
+        wavs: list[np.ndarray],
         sample_rate: int,
         as_spk: bool = False,
         batch_size: int = 32,
-        trim_top_db: Optional[float] = 20,
-        **kwargs,
+        trim_top_db: float | None = 20,
+        rate: float | None = 1.3,
     ) -> np.ndarray:
-        """
-        Wrapper around embeds_from_mels that takes raw waveforms.
-        """
+        """Wrapper around embeds_from_mels for raw waveforms."""
         if sample_rate != self.hp.sample_rate:
             wavs = [
                 librosa.resample(
@@ -303,11 +309,11 @@ class VoiceEncoder(nn.Module):
         if trim_top_db:
             wavs = [librosa.effects.trim(wav, top_db=trim_top_db)[0] for wav in wavs]
 
-        if "rate" not in kwargs:
-            kwargs["rate"] = 1.3  # Resemble's default value
-
         mels = [melspectrogram(w, self.hp).T for w in wavs]
 
         return self.embeds_from_mels(
-            mels, as_spk=as_spk, batch_size=batch_size, **kwargs
+            mels,
+            as_spk=as_spk,
+            batch_size=batch_size,
+            rate=rate,
         )

@@ -1,7 +1,8 @@
 import mlx.core as mx
 import numpy as np
 
-from voxing.chatterbox import ChatterboxTurboTTS, load_model as _load_chatterbox
+from voxing.chatterbox import ChatterboxTurboTTS
+from voxing.chatterbox import load_model as _load_chatterbox
 
 
 def load_tts(model_id: str) -> ChatterboxTurboTTS:

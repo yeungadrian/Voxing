@@ -1,7 +1,8 @@
 # Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional
 
 # GPT2 Medium configuration for Turbo model
 GPT2_MEDIUM_CONFIG = {
@@ -38,7 +39,7 @@ class T3Config:
 
     # Model architecture
     llama_config_name: str = "GPT2_medium"
-    input_pos_emb: Optional[str] = None
+    input_pos_emb: str | None = None
     speech_cond_prompt_len: int = 375
 
     # Conditioning
@@ -58,7 +59,7 @@ class T3Config:
         return self.text_tokens_dict_size == 2454
 
     @classmethod
-    def turbo(cls) -> "T3Config":
+    def turbo(cls) -> T3Config:
         """Create configuration for Turbo TTS model."""
         return cls(
             text_tokens_dict_size=50276,

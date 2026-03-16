@@ -4,7 +4,6 @@ Usage: uv run scripts/tts.py
 """
 
 import mlx.core as mx
-import numpy as np
 import sounddevice as sd
 
 from voxing.config import Settings

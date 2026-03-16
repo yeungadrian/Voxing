@@ -1,15 +1,16 @@
-# Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
+# Copyright (c) 2025, Prince Canuma and contributors
+# (https://github.com/Blaizzy/mlx-audio)
 
-from typing import Optional, Tuple
+
+from collections.abc import Generator
 
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
-from tqdm import tqdm
 
-from .cond_enc import T3Cond, T3CondEnc
-from .gpt2 import GPT2Config, GPT2Model, create_gpt2_config
-from .t3_config import T3Config
+from voxing.chatterbox.models.t3.cond_enc import T3Cond, T3CondEnc
+from voxing.chatterbox.models.t3.gpt2 import GPT2Model, create_gpt2_config
+from voxing.chatterbox.models.t3.t3_config import T3Config
 
 
 class T3(nn.Module):
@@ -18,7 +19,7 @@ class T3(nn.Module):
     MLX port optimized for Apple Silicon.
     """
 
-    def __init__(self, hp: Optional[T3Config] = None):
+    def __init__(self, hp: T3Config | None = None) -> None:
         super().__init__()
         if hp is None:
             hp = T3Config.turbo()
@@ -62,7 +63,7 @@ class T3(nn.Module):
         t3_cond: T3Cond,
         text_tokens: mx.array,
         speech_tokens: mx.array,
-    ) -> Tuple[mx.array, int]:
+    ) -> tuple[mx.array, int]:
         """Prepare input embeddings for the transformer."""
         # Get conditioning embeddings
         cond_emb = self.prepare_conditioning(t3_cond)  # (B, len_cond, dim)
@@ -94,7 +95,7 @@ class T3(nn.Module):
         repetition_penalty: float = 1.2,
         max_gen_len: int = 1000,
         chunk_size: int = 40,
-    ):
+    ) -> Generator[tuple[mx.array, bool]]:
         """
         Streaming turbo inference: generate speech tokens from text tokens,
         yielding chunks of tokens as they're generated.
@@ -168,7 +169,7 @@ class T3(nn.Module):
             # Get logits
             speech_logits = self.speech_head(hidden_states)
 
-            # Sample next token (use slice of pre-allocated buffer for repetition penalty)
+            # Sample next token (use pre-allocated buffer slice)
             next_speech_token = self._sample_token(
                 speech_logits[:, -1, :],
                 temperature=temperature,
@@ -271,7 +272,7 @@ class T3(nn.Module):
         current_speech_token = next_speech_token
 
         # Generation loop
-        for _ in tqdm(range(max_gen_len), desc="Generating speech tokens"):
+        for _ in range(max_gen_len):
             # Get embedding for current token
             current_speech_embed = self.speech_emb(current_speech_token)
 
@@ -324,7 +325,7 @@ class T3(nn.Module):
         temperature: float,
         top_k: int,
         top_p: float,
-        generated_tokens: Optional[mx.array],
+        generated_tokens: mx.array | None,
         repetition_penalty: float,
     ) -> mx.array:
         """Sample a token from logits with various sampling strategies."""
@@ -346,7 +347,7 @@ class T3(nn.Module):
         if top_p < 1.0:
             logits = self._top_p_filtering(logits, top_p)
 
-        # Sample - mx.random.categorical expects logits (unnormalized), NOT probabilities
+        # mx.random.categorical expects logits, NOT probabilities
         # It applies softmax internally
         next_token = mx.random.categorical(logits)
 
@@ -384,9 +385,7 @@ class T3(nn.Module):
 
         # Apply penalty: if score < 0, multiply by penalty; if > 0, divide by penalty
         penalized = mx.where(logits < 0, logits * penalty, logits / penalty)
-        logits = mx.where(token_mask[None, :] > 0, penalized, logits)
-
-        return logits
+        return mx.where(token_mask[None, :] > 0, penalized, logits)
 
     def _top_k_filtering(self, logits: mx.array, top_k: int) -> mx.array:
         """Filter logits to only keep top-k values."""
@@ -406,9 +405,7 @@ class T3(nn.Module):
         mask = logits >= kth_values
 
         # Apply mask (set non-top-k to -inf)
-        logits = mx.where(mask, logits, mx.array(-float("inf")))
-
-        return logits
+        return mx.where(mask, logits, mx.array(-float("inf")))
 
     def _top_p_filtering(self, logits: mx.array, top_p: float) -> mx.array:
         """Filter logits using nucleus (top-p) sampling."""
@@ -442,6 +439,4 @@ class T3(nn.Module):
         # Scatter back
         # Create inverse permutation
         inverse_indices = mx.argsort(sorted_indices, axis=-1)
-        logits = mx.take_along_axis(sorted_logits, inverse_indices, axis=-1)
-
-        return logits
+        return mx.take_along_axis(sorted_logits, inverse_indices, axis=-1)

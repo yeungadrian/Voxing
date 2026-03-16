@@ -14,8 +14,8 @@ class GenerationResult:
     token_count: int
     audio_duration: str
     real_time_factor: float
-    prompt: dict
-    audio_samples: dict
+    prompt: dict[str, int | float]
+    audio_samples: dict[str, int | float]
     processing_time_seconds: float
     peak_memory_usage: float
     is_streaming_chunk: bool = False

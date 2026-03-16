@@ -1,12 +1,11 @@
 # Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
 
 from dataclasses import dataclass
-from typing import Optional
 
 import mlx.core as mx
 import mlx.nn as nn
 
-from .t3_config import T3Config
+from voxing.chatterbox.models.t3.t3_config import T3Config
 
 
 @dataclass
@@ -14,18 +13,16 @@ class T3Cond:
     """Dataclass container for conditioning info."""
 
     speaker_emb: mx.array
-    clap_emb: Optional[mx.array] = None
-    cond_prompt_speech_tokens: Optional[mx.array] = None
-    cond_prompt_speech_emb: Optional[mx.array] = None
-    emotion_adv: Optional[mx.array] = None
+    clap_emb: mx.array | None = None
+    cond_prompt_speech_tokens: mx.array | None = None
+    cond_prompt_speech_emb: mx.array | None = None
+    emotion_adv: mx.array | None = None
 
 
 class T3CondEnc(nn.Module):
-    """
-    Handle all non-text conditioning, like speaker embeddings / prompts, CLAP, emotion, etc.
-    """
+    """Handle non-text conditioning: speaker embeddings, prompts, CLAP, emotion."""
 
-    def __init__(self, hp: T3Config):
+    def __init__(self, hp: T3Config) -> None:
         super().__init__()
         self.hp = hp
 
@@ -80,7 +77,7 @@ class T3CondEnc(nn.Module):
             cond_emotion_adv = self.emotion_adv_fc(emotion_val)
 
         # Concat and return
-        cond_embeds = mx.concatenate(
+        return mx.concatenate(
             [
                 cond_spkr,
                 cond_clap,
@@ -89,5 +86,3 @@ class T3CondEnc(nn.Module):
             ],
             axis=1,
         )
-
-        return cond_embeds
