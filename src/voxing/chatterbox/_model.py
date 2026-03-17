@@ -259,10 +259,9 @@ def load_model(model_id: str) -> ChatterboxTurboTTS:
     model._load_weights(weights)
     model.eval()
 
-    # Load text tokenizer
-    from transformers import AutoTokenizer
+    from transformers.models.gpt2 import GPT2TokenizerFast  # type: ignore[attr-defined]
 
-    tokenizer = AutoTokenizer.from_pretrained(str(model_path))
+    tokenizer = GPT2TokenizerFast.from_pretrained(str(model_path))
     if tokenizer is None:
         raise RuntimeError(f"Failed to load tokenizer from {model_path}")
     if tokenizer.pad_token is None:

@@ -28,7 +28,9 @@ class SettingsResult:
     config_overrides: dict[str, bool | int | float | str] = field(default_factory=dict)
 
 
-_EXCLUDED_SETTINGS = frozenset({"model_id", "llm_model_id", "sample_rate"})
+_EXCLUDED_SETTINGS = frozenset(
+    {"model_id", "llm_model_id", "tts_model_id", "sample_rate"}
+)
 
 
 def _build_entries(settings: Settings) -> list[SettingEntry]:
