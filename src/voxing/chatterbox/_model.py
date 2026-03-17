@@ -256,6 +256,21 @@ def load_model(model_id: str) -> ChatterboxTurboTTS:
     if hasattr(model, "sanitize"):
         weights = model.sanitize(weights)
 
+    quantization = config.get("quantization")
+    if quantization:
+
+        def class_predicate(path: str, module: nn.Module) -> bool:
+            if not hasattr(module, "to_quantized"):
+                return False
+            return f"{path}.scales" in weights
+
+        nn.quantize(
+            model,
+            group_size=quantization["group_size"],
+            bits=quantization["bits"],
+            class_predicate=class_predicate,
+        )
+
     model._load_weights(weights)
     model.eval()
 

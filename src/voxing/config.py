@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     audio_visual: Literal["none", "waveform", "oscilloscope"] = "waveform"
 
     tts_enabled: bool = False
-    tts_model_id: str = "mlx-community/chatterbox-turbo-fp16"
+    tts_model_id: str = "mlx-community/Chatterbox-Turbo-TTS-4bit"
 
     model_id: str = "mlx-community/parakeet-tdt-0.6b-v3"
     sample_rate: int = 16_000
