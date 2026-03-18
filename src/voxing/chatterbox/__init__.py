@@ -1,3 +1,3 @@
-from voxing.chatterbox._model import ChatterboxTurboTTS, load_model
+from voxing.chatterbox._model import ChatterboxTurboTTS, load_tts_model
 
-__all__ = ["ChatterboxTurboTTS", "load_model"]
+__all__ = ["ChatterboxTurboTTS", "load_tts_model"]

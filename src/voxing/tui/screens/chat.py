@@ -11,9 +11,8 @@ from textual.events import Key
 from textual.screen import Screen
 
 from voxing.config import Settings
-from voxing.llm import LocalAgent, Message, TextChunk
-from voxing.llm import load_model as load_llm
-from voxing.parakeet import load_model as load_stt
+from voxing.llm import LocalAgent, Message, TextChunk, load_llm
+from voxing.parakeet import load_stt
 from voxing.stt import RealtimeTranscriber
 from voxing.tts import load_tts, synthesize_and_play
 from voxing.tui.messages import (
@@ -298,7 +297,7 @@ class ChatScreen(Screen[None]):
             self.post_message(TranscriptionFinal(last_text, error=error))
 
     @work(thread=True, exclusive=True, group="synthesize")
-    def _synthesize(self, texts: str | list[str]) -> None:
+    def _synthesize(self, text: str) -> None:
         """Load TTS model, stream synthesis, then unload."""
         model = None
         error: str | None = None
@@ -312,7 +311,7 @@ class ChatScreen(Screen[None]):
             self.post_message(StatusChanged(Status.GENERATING_AUDIO))
             synthesize_and_play(
                 model,
-                texts,
+                text,
                 on_chunk=lambda chunk: self.post_message(SynthesisChunk(chunk)),
                 on_first_chunk=lambda: self.post_message(
                     StatusChanged(Status.SPEAKING)
@@ -357,15 +356,13 @@ class ChatScreen(Screen[None]):
             last = self._messages[-1]
             if last["role"] == "assistant" and last.get("content"):
                 full_text = str(last["content"])
-                paragraphs = [p for p in full_text.split("\n\n") if p.strip()]
-                texts = paragraphs if paragraphs else [full_text]
                 self._synthesis_display = SynthesisDisplay(
                     text=full_text,
                     audio_visual=self._settings.audio_visual,
                 )
                 self.message_list.mount(self._synthesis_display)
                 self.message_list.scroll_end(animate=False)
-                self._synthesize(texts)
+                self._synthesize(full_text)
                 return
             self.chat_input.disabled = False
             self.chat_input.focus()

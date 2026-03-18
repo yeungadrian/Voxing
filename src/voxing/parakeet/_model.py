@@ -251,7 +251,7 @@ def _build_model(config: dict) -> ParakeetTDT:
     return ParakeetTDT(from_dict(ParakeetTDTArgs, config))
 
 
-def load_model(model_id: str) -> ParakeetTDT:
+def load_stt(model_id: str) -> ParakeetTDT:
     """Download (if needed) and load a Parakeet model from HuggingFace Hub."""
     model_path = _resolve_model_path(
         model_id, allow_patterns=["*.json", "*.safetensors"]

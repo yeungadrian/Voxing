@@ -183,9 +183,18 @@ class ChatterboxTurboTTS(nn.Module):
         if not chunks:
             chunks = [text]
 
+        logger.info("Chunking: %d chunk(s) from %d chars", len(chunks), len(text))
+        for i, c in enumerate(chunks):
+            logger.info("  chunk %d: %r", i, c[:80])
+
         mx.clear_cache()
 
-        for chunk in chunks:
+        for chunk_idx, chunk in enumerate(chunks):
+            import time as _time
+
+            _t0 = _time.perf_counter()
+            logger.info("Generating chunk %d ...", chunk_idx)
+
             if self.tokenizer is not None:
                 text_tokens = self.tokenizer(
                     chunk, return_tensors="np", padding=True, truncation=True
@@ -222,6 +231,14 @@ class ChatterboxTurboTTS(nn.Module):
             if wav.ndim == 2:
                 wav = wav.squeeze(0)
 
+            _dur = len(np.array(wav)) / self.sample_rate
+            logger.info(
+                "Chunk %d done in %.2fs, audio=%.2fs",
+                chunk_idx,
+                _time.perf_counter() - _t0,
+                _dur,
+            )
+
             yield GenerationResult(
                 audio=wav,
                 sample_rate=self.sample_rate,
@@ -230,7 +247,7 @@ class ChatterboxTurboTTS(nn.Module):
             mx.clear_cache()
 
 
-def load_model(model_id: str) -> ChatterboxTurboTTS:
+def load_tts_model(model_id: str) -> ChatterboxTurboTTS:
     """Download (if needed) and load a Chatterbox Turbo TTS model."""
     model_path = _resolve_model_path(
         model_id,

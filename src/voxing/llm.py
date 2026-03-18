@@ -23,7 +23,7 @@ class TextChunk:
     content: str
 
 
-def load_model(model_id: str) -> tuple[nn.Module, TokenizerWrapper]:
+def load_llm(model_id: str) -> tuple[nn.Module, TokenizerWrapper]:
     """Download (if needed) and load an LLM from HuggingFace Hub."""
     model_path = _resolve_model_path(model_id)
     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
