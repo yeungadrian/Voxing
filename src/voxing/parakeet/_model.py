@@ -265,7 +265,7 @@ def load_stt(model_id: str) -> ParakeetTDT:
         loaded: dict[str, mx.array] = mx.load(str(wf))  # type: ignore[assignment]
         weights.update(loaded)
 
-    model.load_weights(list(weights.items()), strict=False)
+    model.load_weights(list(weights.items()))
     mx.eval(model.parameters())
     model.eval()  # prevents layernorm not computing correctly on inference
     return model

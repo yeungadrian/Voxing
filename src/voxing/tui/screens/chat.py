@@ -222,6 +222,8 @@ class ChatScreen(Screen[None]):
         if event.key == "escape":
             self._stop_transcriber()
             self._stop_synthesis()
+        elif event.key == "enter" and self._active_transcriber is not None:
+            self._stop_transcriber()
 
     # --- Workers ---
 

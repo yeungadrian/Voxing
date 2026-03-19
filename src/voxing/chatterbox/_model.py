@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, cast
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
+from mlx.utils import tree_flatten
 
 from voxing._download import _resolve_model_path
 from voxing.chatterbox._base import GenerationResult
@@ -115,7 +116,6 @@ class ChatterboxTurboTTS(nn.Module):
     def _load_weights(
         self,
         weights: list[tuple[str, mx.array]] | dict[str, mx.array],
-        strict: bool = True,
     ) -> None:
         """Load weights into the model."""
         if isinstance(weights, dict):
@@ -131,9 +131,14 @@ class ChatterboxTurboTTS(nn.Module):
                 s3gen_weights.append((k[6:], v))
 
         if t3_weights:
-            self.t3.load_weights(t3_weights, strict=False)
+            self.t3.load_weights(t3_weights)
         if s3gen_weights:
-            self.s3gen.load_weights(s3gen_weights, strict=False)
+            s3gen_weight_keys = {k for k, _ in s3gen_weights}
+            s3gen_params = dict(tree_flatten(self.s3gen.parameters()))
+            for key, value in s3gen_params.items():
+                if key not in s3gen_weight_keys:
+                    s3gen_weights.append((key, value))
+            self.s3gen.load_weights(s3gen_weights)
 
         mx.eval(
             self.t3.parameters(),
