@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import queue
 import threading
 from collections.abc import Callable, Iterator
@@ -80,7 +82,7 @@ class RealtimeTranscriber:
             return self._detect_silence(tail)
         return False
 
-    def __enter__(self) -> "RealtimeTranscriber":
+    def __enter__(self) -> RealtimeTranscriber:
         self._thread = threading.Thread(
             target=_stream_mic_chunks,
             args=(

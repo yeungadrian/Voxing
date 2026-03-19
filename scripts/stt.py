@@ -16,7 +16,7 @@ from rich.text import Text
 
 from voxing.config import Settings
 from voxing.palette import BLUE, TEXT
-from voxing.parakeet import load_model
+from voxing.parakeet import load_stt
 from voxing.stt import RealtimeTranscriber
 from voxing.viz import (
     BRAILLE_BASE,
@@ -54,7 +54,7 @@ def _render_frame(frame: VizFrame) -> str:
 settings = Settings()
 
 print("Loading model...")
-model = load_model(settings.model_id)
+model = load_stt(settings.model_id)
 print("Model loaded.\n")
 
 input("Press Enter to start recording... ")

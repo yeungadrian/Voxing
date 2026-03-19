@@ -4,11 +4,11 @@ Usage: uv run scripts/llm.py
 """
 
 from voxing.config import Settings
-from voxing.llm import LocalAgent, TextChunk, load_model
+from voxing.llm import LocalAgent, TextChunk, load_llm
 
 settings = Settings()
 print("Loading model...")
-model, tokenizer = load_model(settings.llm_model_id)
+model, tokenizer = load_llm(settings.llm_model_id)
 print("Model loaded.\n")
 
 _EXAMPLES = [

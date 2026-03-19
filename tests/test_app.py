@@ -1,6 +1,9 @@
-from unittest.mock import patch
+from collections.abc import Callable
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
+from textual.pilot import Pilot
 from textual.widgets import Static
 
 from voxing.tui.app import VoxingApp
@@ -18,7 +21,7 @@ def app() -> VoxingApp:
     return VoxingApp()
 
 
-async def _type_and_submit(pilot, text: str) -> None:
+async def _type_and_submit(pilot: Pilot[None], text: str) -> None:
     """Type text into the chat input and press enter."""
     for char in text:
         await pilot.press(char)
@@ -71,7 +74,9 @@ async def test_command_unknown_shows_error(app: VoxingApp) -> None:
 
 
 @patch("voxing.tui.screens.chat.load_llm")
-async def test_user_message_adds_widget(mock_load_llm, app: VoxingApp) -> None:
+async def test_user_message_adds_widget(
+    mock_load_llm: MagicMock, app: VoxingApp
+) -> None:
     mock_load_llm.side_effect = Exception("no model")
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -123,17 +128,17 @@ async def test_settings_opens_and_dismisses(app: VoxingApp) -> None:
         assert app.screen.__class__.__name__ != "SettingsScreen"
 
 
-def test_snap_initial(snap_compare):
+def test_snap_initial(snap_compare: Callable[..., Any]) -> None:
     """Welcome screen on startup."""
     assert snap_compare(VoxingApp(), terminal_size=(80, 24))
 
 
-def test_snap_command_hints(snap_compare):
+def test_snap_command_hints(snap_compare: Callable[..., Any]) -> None:
     """Command hints appear when typing /."""
     assert snap_compare(VoxingApp(), press=["/"], terminal_size=(80, 24))
 
 
-def test_snap_after_clear(snap_compare):
+def test_snap_after_clear(snap_compare: Callable[..., Any]) -> None:
     """Screen after /clear command."""
     assert snap_compare(
         VoxingApp(),
@@ -142,7 +147,7 @@ def test_snap_after_clear(snap_compare):
     )
 
 
-def test_snap_settings_screen(snap_compare):
+def test_snap_settings_screen(snap_compare: Callable[..., Any]) -> None:
     """Settings screen opened via /settings."""
     assert snap_compare(
         VoxingApp(),

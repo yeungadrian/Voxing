@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import threading
 from collections.abc import Callable
 from typing import ClassVar
@@ -9,15 +11,17 @@ from textual.events import Key
 from textual.screen import Screen
 
 from voxing.config import Settings
-from voxing.llm import LocalAgent, Message, TextChunk
-from voxing.llm import load_model as load_llm
-from voxing.parakeet import load_model as load_stt
+from voxing.llm import LocalAgent, Message, TextChunk, load_llm
+from voxing.parakeet import load_stt
 from voxing.stt import RealtimeTranscriber
+from voxing.tts import load_tts, synthesize_and_play
 from voxing.tui.messages import (
     AudioChunk,
     GenerationComplete,
     Status,
     StatusChanged,
+    SynthesisChunk,
+    SynthesisComplete,
     TokenReceived,
     TranscriptionFinal,
     TranscriptionUpdate,
@@ -31,6 +35,7 @@ from voxing.tui.widgets import (
     CommandHints,
     FooterBar,
     MessageList,
+    SynthesisDisplay,
     TranscriptionDisplay,
     WelcomeMessage,
 )
@@ -49,6 +54,8 @@ class ChatScreen(Screen[None]):
         self._active_transcriber: RealtimeTranscriber | None = None
         self._transcriber_lock = threading.Lock()
         self._transcription_display: TranscriptionDisplay | None = None
+        self._synthesis_display: SynthesisDisplay | None = None
+        self._synthesis_stop_event: threading.Event | None = None
 
     @property
     def footer_bar(self) -> FooterBar:
@@ -80,9 +87,11 @@ class ChatScreen(Screen[None]):
     def on_screen_resume(self) -> None:
         self.chat_input.focus()
 
-    def _set_status(self, status: Status, error: str | None = None) -> None:
+    def _set_status(
+        self, status: Status, error: str | None = None, detail: str | None = None
+    ) -> None:
         """Update the footer status from the main thread."""
-        self.footer_bar.set_status(status_markup(status, error))
+        self.footer_bar.set_status(status_markup(status, error, detail))
 
     def _remove_welcome(self) -> None:
         """Remove the welcome message if present."""
@@ -99,15 +108,17 @@ class ChatScreen(Screen[None]):
         self.command_hints.display = False
         self.footer_bar.display = True
 
-        handler = self._COMMANDS.get(text)
-        if handler is not None:
-            handler(self)
-        elif text.startswith("/"):
-            self._set_status(Status.ERROR, f"Unknown command: {text}")
+        if text.startswith("/"):
+            cmd_word, _, args = text.partition(" ")
+            handler = self._COMMANDS.get(cmd_word)
+            if handler is not None:
+                handler(self, args.strip())
+            else:
+                self._set_status(Status.ERROR, f"Unknown command: {cmd_word}")
         else:
             self._send_message(text)
 
-    def _handle_clear(self) -> None:
+    def _handle_clear(self, args: str) -> None:
         self.message_list.clear_messages()
         self.message_list.mount(WelcomeMessage())
         self._messages = [
@@ -115,7 +126,7 @@ class ChatScreen(Screen[None]):
         ]
         self._set_status(Status.CHAT_CLEARED)
 
-    def _handle_settings(self) -> None:
+    def _handle_settings(self, args: str) -> None:
         self.app.push_screen(
             SettingsScreen(self._settings),
             callback=self._on_settings_dismissed,
@@ -133,7 +144,7 @@ class ChatScreen(Screen[None]):
         }
         self._set_status(Status.SETTINGS_SAVED)
 
-    def _handle_transcribe(self) -> None:
+    def _handle_transcribe(self, args: str) -> None:
         self._remove_welcome()
         self.chat_input.disabled = True
         self._set_status(Status.LOADING_STT)
@@ -146,20 +157,36 @@ class ChatScreen(Screen[None]):
         self.message_list.scroll_end(animate=False)
         self._transcribe()
 
-    def _handle_help(self) -> None:
+    def _handle_speak(self, args: str) -> None:
+        """Synthesize and play the given text."""
+        if not args:
+            self._set_status(Status.ERROR, "Usage: /speak <text>")
+            return
+        self._remove_welcome()
+        self.chat_input.disabled = True
+        self._synthesis_display = SynthesisDisplay(
+            text=args,
+            audio_visual=self._settings.audio_visual,
+        )
+        self.message_list.mount(self._synthesis_display)
+        self.message_list.scroll_end(animate=False)
+        self._synthesize(args)
+
+    def _handle_help(self, args: str) -> None:
         self.footer_bar.set_status(
             "[dim]Commands: " + ", ".join(SLASH_COMMANDS) + "[/]"
         )
 
-    def _handle_exit(self) -> None:
+    def _handle_exit(self, args: str) -> None:
         """Shut down workers and exit the application."""
         self.shutdown_workers()
         self.app.exit()
 
-    _COMMANDS: ClassVar[dict[str, Callable[["ChatScreen"], None]]] = {
+    _COMMANDS: ClassVar[dict[str, Callable[[ChatScreen, str], None]]] = {
         "/clear": _handle_clear,
         "/settings": _handle_settings,
         "/transcribe": _handle_transcribe,
+        "/speak": _handle_speak,
         "/help": _handle_help,
         "/exit": _handle_exit,
     }
@@ -178,15 +205,24 @@ class ChatScreen(Screen[None]):
         if transcriber is not None:
             transcriber.stop()
 
+    def _stop_synthesis(self) -> None:
+        """Signal active synthesis to stop."""
+        if self._synthesis_stop_event is not None:
+            self._synthesis_stop_event.set()
+
     def shutdown_workers(self) -> None:
         """Signal all background workers to stop."""
         self._stop_transcriber()
+        self._stop_synthesis()
 
     def on_unmount(self) -> None:
         self.shutdown_workers()
 
     def on_key(self, event: Key) -> None:
         if event.key == "escape":
+            self._stop_transcriber()
+            self._stop_synthesis()
+        elif event.key == "enter" and self._active_transcriber is not None:
             self._stop_transcriber()
 
     # --- Workers ---
@@ -199,7 +235,9 @@ class ChatScreen(Screen[None]):
         agent = None
         error: str | None = None
         try:
-            self.post_message(StatusChanged(Status.LOADING_LLM))
+            self.post_message(
+                StatusChanged(Status.LOADING_LLM, detail=self._settings.llm_model_id)
+            )
             model, tokenizer = load_llm(self._settings.llm_model_id)
             self.post_message(StatusChanged(Status.GENERATING))
 
@@ -232,7 +270,9 @@ class ChatScreen(Screen[None]):
         last_text = ""
         error: str | None = None
         try:
-            self.post_message(StatusChanged(Status.LOADING_STT))
+            self.post_message(
+                StatusChanged(Status.LOADING_STT, detail=self._settings.model_id)
+            )
             model = load_stt(self._settings.model_id)
             self.post_message(StatusChanged(Status.RECORDING))
 
@@ -258,10 +298,40 @@ class ChatScreen(Screen[None]):
             mx.clear_cache()
             self.post_message(TranscriptionFinal(last_text, error=error))
 
+    @work(thread=True, exclusive=True, group="synthesize")
+    def _synthesize(self, text: str) -> None:
+        """Load TTS model, stream synthesis, then unload."""
+        model = None
+        error: str | None = None
+        stop_event = threading.Event()
+        self._synthesis_stop_event = stop_event
+        try:
+            self.post_message(
+                StatusChanged(Status.LOADING_TTS, detail=self._settings.tts_model_id)
+            )
+            model = load_tts(self._settings.tts_model_id)
+            self.post_message(StatusChanged(Status.GENERATING_AUDIO))
+            synthesize_and_play(
+                model,
+                text,
+                on_chunk=lambda chunk: self.post_message(SynthesisChunk(chunk)),
+                on_first_chunk=lambda: self.post_message(
+                    StatusChanged(Status.SPEAKING)
+                ),
+                stop_event=stop_event,
+            )
+        except Exception as exc:
+            error = str(exc) or type(exc).__name__
+        finally:
+            self._synthesis_stop_event = None
+            del model
+            mx.clear_cache()
+            self.post_message(SynthesisComplete(error=error))
+
     # --- Message handlers ---
 
     def on_status_changed(self, message: StatusChanged) -> None:
-        self._set_status(message.status, message.error)
+        self._set_status(message.status, message.error, message.detail)
 
     def _ensure_assistant_msg(self) -> AssistantMessage:
         """Lazily create an assistant message widget."""
@@ -280,11 +350,28 @@ class ChatScreen(Screen[None]):
             if self._current_assistant_msg.is_empty:
                 self._current_assistant_msg.remove()
             self._current_assistant_msg = None
-        self.chat_input.disabled = False
-        self.chat_input.focus()
         if message.error:
+            self.chat_input.disabled = False
+            self.chat_input.focus()
             self._set_status(Status.ERROR, f"Generation error: {message.error}")
+        elif self._settings.tts_enabled and len(self._messages) >= 2:
+            last = self._messages[-1]
+            if last["role"] == "assistant" and last.get("content"):
+                full_text = str(last["content"])
+                self._synthesis_display = SynthesisDisplay(
+                    text=full_text,
+                    audio_visual=self._settings.audio_visual,
+                )
+                self.message_list.mount(self._synthesis_display)
+                self.message_list.scroll_end(animate=False)
+                self._synthesize(full_text)
+                return
+            self.chat_input.disabled = False
+            self.chat_input.focus()
+            self._set_status(Status.IDLE)
         else:
+            self.chat_input.disabled = False
+            self.chat_input.focus()
             self._set_status(Status.IDLE)
 
     def on_transcription_update(self, message: TranscriptionUpdate) -> None:
@@ -309,3 +396,18 @@ class ChatScreen(Screen[None]):
             self._set_status(Status.ERROR, f"Transcription error: {message.error}")
         else:
             self._set_status(Status.TRANSCRIPTION_READY)
+
+    def on_synthesis_chunk(self, message: SynthesisChunk) -> None:
+        if self._synthesis_display is not None:
+            self._synthesis_display.push_chunk(message.chunk)
+
+    def on_synthesis_complete(self, message: SynthesisComplete) -> None:
+        if self._synthesis_display is not None:
+            self._synthesis_display.remove()
+            self._synthesis_display = None
+        self.chat_input.disabled = False
+        self.chat_input.focus()
+        if message.error:
+            self._set_status(Status.ERROR, f"Synthesis error: {message.error}")
+        else:
+            self._set_status(Status.IDLE)

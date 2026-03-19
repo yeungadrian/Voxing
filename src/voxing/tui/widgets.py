@@ -91,6 +91,7 @@ class VizWidget(Widget):
 
 SLASH_COMMANDS: dict[str, str] = {
     "/transcribe": "Start voice transcription",
+    "/speak": "Speak the given text",
     "/settings": "Open settings panel",
     "/clear": "Clear chat history",
     "/help": "Show available commands",
@@ -200,7 +201,7 @@ class TranscriptionDisplay(Widget):
         """Compose the visualizer, mic indicator and live text."""
         if self._visualizer is not None:
             yield self._visualizer
-        yield Static("\u23fa Recording", id="recording-label")
+        yield Static("Recording", id="recording-label")
         yield Static("Listening...", id="transcription-text")
 
     def update_text(self, text: str) -> None:
@@ -208,6 +209,49 @@ class TranscriptionDisplay(Widget):
         text_widget = self.query_one("#transcription-text", Static)
         text_widget.update(text)
         text_widget.add_class("active")
+
+    def push_chunk(self, chunk: np.ndarray) -> None:
+        """Forward an audio chunk to the visualizer."""
+        if self._visualizer is not None:
+            self._visualizer.push_chunk(chunk)
+
+
+class SynthesisDisplay(Widget):
+    DEFAULT_CSS = """
+    SynthesisDisplay {
+        height: auto;
+        padding: 0 1;
+        margin: 0 0;
+    }
+    SynthesisDisplay > VizWidget {
+        height: 3;
+        width: 33%;
+    }
+    SynthesisDisplay > #speaking-label {
+        color: $accent;
+    }
+    SynthesisDisplay > #speaking-text {
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self, text: str, audio_visual: str = "waveform") -> None:
+        super().__init__()
+        self._text = text
+        viz: Visualizer | None = None
+        match audio_visual:
+            case "waveform":
+                viz = WaveformViz()
+            case "oscilloscope":
+                viz = OscilloscopeViz()
+        self._visualizer = VizWidget(viz) if viz else None
+
+    def compose(self) -> ComposeResult:
+        """Compose the visualizer, speaker indicator and text."""
+        if self._visualizer is not None:
+            yield self._visualizer
+        yield Static("Speaking", id="speaking-label")
+        yield Static(self._text, id="speaking-text")
 
     def push_chunk(self, chunk: np.ndarray) -> None:
         """Forward an audio chunk to the visualizer."""

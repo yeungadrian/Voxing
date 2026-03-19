@@ -251,7 +251,7 @@ def _build_model(config: dict) -> ParakeetTDT:
     return ParakeetTDT(from_dict(ParakeetTDTArgs, config))
 
 
-def load_model(model_id: str) -> ParakeetTDT:
+def load_stt(model_id: str) -> ParakeetTDT:
     """Download (if needed) and load a Parakeet model from HuggingFace Hub."""
     model_path = _resolve_model_path(
         model_id, allow_patterns=["*.json", "*.safetensors"]
@@ -265,7 +265,7 @@ def load_model(model_id: str) -> ParakeetTDT:
         loaded: dict[str, mx.array] = mx.load(str(wf))  # type: ignore[assignment]
         weights.update(loaded)
 
-    model.load_weights(list(weights.items()), strict=False)
+    model.load_weights(list(weights.items()))
     mx.eval(model.parameters())
     model.eval()  # prevents layernorm not computing correctly on inference
     return model
