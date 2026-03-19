@@ -1,5 +1,3 @@
-# Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
-
 from voxing.chatterbox.models.s3gen.s3gen import S3GEN_SIL, S3GEN_SR, S3Gen
 
 __all__ = [

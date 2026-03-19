@@ -1,6 +1,3 @@
-# Copyright (c) 2025, Prince Canuma and contributors (https://github.com/Blaizzy/mlx-audio)
-
-
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
